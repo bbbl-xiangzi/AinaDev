@@ -12,8 +12,10 @@ import { UsersPanel } from "@/components/admin/UsersPanel";
 import { OverviewPanel } from "@/components/admin/OverviewPanel";
 import { AuditPanel } from "@/components/admin/AuditPanel";
 import { SettingsPanel } from "@/components/admin/SettingsPanel";
+import { TicketPanel } from "@/components/admin/TicketPanel";
+import { ExternalAgentsPanel } from "@/components/admin/ExternalAgentsPanel";
 
-type TabKey = "overview" | "reviews" | "news" | "users" | "categories" | "rag" | "models" | "audit" | "settings" | "other";
+type TabKey = "overview" | "reviews" | "news" | "users" | "categories" | "rag" | "models" | "external" | "audit" | "tickets" | "settings" | "other";
 
 const MENU: { key: TabKey; label: string; icon: string }[] = [
   { key: "overview", label: "总览", icon: "📊" },
@@ -23,7 +25,9 @@ const MENU: { key: TabKey; label: string; icon: string }[] = [
   { key: "categories", label: "栏目", icon: "🗂️" },
   { key: "rag", label: "知识库", icon: "📚" },
   { key: "models", label: "模型配置", icon: "🤖" },
+  { key: "external", label: "外部 Agent", icon: "🔗" },
   { key: "audit", label: "审计", icon: "🔍" },
+  { key: "tickets", label: "奖励设置", icon: "⭐" },
   { key: "settings", label: "设置", icon: "⚙️" },
   { key: "other", label: "其他", icon: "⋯" },
 ];
@@ -36,7 +40,9 @@ const TAB_LABELS: Record<TabKey, string> = {
   categories: "栏目 & AI 管理员",
   rag: "知识库 RAG",
   models: "模型配置",
+  external: "外部回帖源（第三方 Agent）",
   audit: "审计日志",
+  tickets: "奖励（⭐ Ticket）配置",
   settings: "站点设置",
   other: "其他功能",
 };
@@ -104,7 +110,9 @@ export default function AdminPage() {
           {tab === "categories" && <CategoryManager />}
           {tab === "rag" && <RagManager />}
           {tab === "models" && <ModelConfigPanel />}
+          {tab === "external" && <ExternalAgentsPanel />}
           {tab === "audit" && <AuditPanel />}
+          {tab === "tickets" && <TicketPanel />}
           {tab === "settings" && <SettingsPanel />}
           {tab === "other" && (
             <div className="rounded-lg border border-[#d0d7de] bg-white p-6">

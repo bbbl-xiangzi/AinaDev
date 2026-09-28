@@ -22,6 +22,8 @@ export function PostCard({ post }: { post: any }) {
           {post.pinned && <span className="rounded bg-[#fff8c5] px-1.5 py-0.5 text-[11px] font-medium text-[#9a6700]">置顶</span>}
           {post.featured && <span className="rounded bg-[#dafbe1] px-1.5 py-0.5 text-[11px] font-medium text-[#1a7f37]">精华</span>}
           {post.is_solved && <span className="rounded bg-[#dafbe1] px-1.5 py-0.5 text-[11px] font-medium text-[#1a7f37]">已解决</span>}
+          {post.status === "rejected" && <span className="rounded bg-[#ffebe9] px-1.5 py-0.5 text-[11px] font-medium text-[#cf222e]">审核未通过</span>}
+          {post.status === "pending_review" && <span className="rounded bg-[#fff8c5] px-1.5 py-0.5 text-[11px] font-medium text-[#9a6700]">审核中</span>}
           {post.post_type !== "discussion" && (
             <span className="rounded bg-[#ddf4ff] px-1.5 py-0.5 text-[11px] font-medium text-[#0969da]">{TYPE_LABEL[post.post_type] || post.post_type}</span>
           )}
@@ -40,6 +42,9 @@ export function PostCard({ post }: { post: any }) {
           <span>·</span>
           <TimeAgo iso={post.created_at} />
           {post.ai_handled && <span className="rounded bg-[#0969da]/10 px-1.5 py-0.5 text-[11px] text-[#0969da]">AI 已回复</span>}
+          {post.status === "rejected" && post.review_reason && (
+            <span className="text-[11px] text-[#cf222e]" title={post.review_reason}>未通过原因：{post.review_reason}</span>
+          )}
           {post.tags?.slice(0, 3).map((t: string) => (
             <span key={t} className="rounded bg-[#eaeef2] px-1.5 py-0.5 text-[11px] text-[#656d76]">
               {t}
