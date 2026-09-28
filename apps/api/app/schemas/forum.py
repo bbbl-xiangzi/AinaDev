@@ -12,9 +12,13 @@ class CategoryIn(BaseModel):
     icon: str | None = None
     sort_order: int = 0
     allow_post: bool = True
+    post_permission: str = "public"  # public | staff_only | closed
     auto_reply_enabled: bool = True
     reply_threshold: float = 0.7
     notify_human_on_no_evidence: bool = True
+    external_agent_id: int | None = None
+    relevance_check_enabled: bool = False
+    reply_to_author_questions: bool = False
 
 
 class CategoryUpdate(BaseModel):
@@ -23,9 +27,13 @@ class CategoryUpdate(BaseModel):
     icon: str | None = None
     sort_order: int | None = None
     allow_post: bool | None = None
+    post_permission: str | None = None
     auto_reply_enabled: bool | None = None
     reply_threshold: float | None = None
     notify_human_on_no_evidence: bool | None = None
+    external_agent_id: int | None = None
+    relevance_check_enabled: bool | None = None
+    reply_to_author_questions: bool | None = None
 
 
 class CategoryOut(BaseModel):
@@ -36,9 +44,14 @@ class CategoryOut(BaseModel):
     icon: str | None
     sort_order: int
     allow_post: bool
+    post_permission: str = "public"
     auto_reply_enabled: bool
     reply_threshold: float
     notify_human_on_no_evidence: bool
+    external_agent_id: int | None = None
+    relevance_check_enabled: bool = False
+    reply_to_author_questions: bool = False
+    external_agent_name: str | None = None
     post_count: int = 0
     is_subscribed: bool = False
     ai_admin: "AiAdminBrief | None" = None
@@ -92,6 +105,37 @@ class AiAdminOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+# ---------- 外部 Agent 回帖源 ----------
+class ExternalAgentIn(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    protocol: str = "openai_compatible"  # openai_compatible / dify_chatflow / dify_workflow / custom_http
+    api_url: str = Field(min_length=1, max_length=500)
+    api_key: str | None = None  # 回填为空则保持原值
+    model: str | None = None
+    headers_json: dict | None = None
+    request_template: str | None = None
+    response_path: str | None = None
+    timeout_seconds: int = 60
+    enabled: bool = True
+
+
+class ExternalAgentOut(BaseModel):
+    id: int
+    name: str
+    protocol: str
+    api_url: str
+    model: str | None
+    headers_json: dict | None
+    request_template: str | None
+    response_path: str | None
+    timeout_seconds: int
+    enabled: bool
+    has_api_key: bool = False
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
 # ---------- 附件 ----------
 class AttachmentItem(BaseModel):
     name: str
@@ -134,6 +178,7 @@ class PostOut(BaseModel):
     reply_count: int
     ai_handled: bool
     human_needed: bool
+    review_reason: str | None = None  # 审核不通过原因（仅作者/管理员可见）
     created_at: datetime
     updated_at: datetime
     is_liked: bool = False
@@ -177,6 +222,7 @@ class ReplyOut(BaseModel):
     status: str
     citations: list | None
     attachments: list[AttachmentItem] = []
+    review_reason: str | None = None  # 审核不通过原因
     like_count: int
     created_at: datetime
     is_liked: bool = False
