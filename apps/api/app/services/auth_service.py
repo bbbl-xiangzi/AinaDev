@@ -41,6 +41,14 @@ async def register(db: AsyncSession, email: str, name: str, password: str, invit
     )
     db.add(user)
     await db.flush()
+
+    # 新用户注册奖励
+    from app.services.ticket_service import grant as grant_ticket
+    try:
+        await grant_ticket(db, user.id, "register")
+    except Exception:
+        pass
+
     inv.status = "used"
     inv.used_by = user.id
     inv.used_at = _utcnow()
@@ -61,6 +69,13 @@ async def login(db: AsyncSession, email: str, password: str) -> User:
         raise AuthError("邮箱或密码错误")
     user.last_active_at = _utcnow()
     await db.commit()
+
+    # 每日首次登录奖励（每日 1 次）
+    from app.services.ticket_service import grant as grant_ticket
+    try:
+        await grant_ticket(db, user.id, "daily_login")
+    except Exception:
+        pass
     return user
 
 
@@ -96,4 +111,7 @@ async def create_system_accounts(db: AsyncSession) -> None:
     # 运维 Agent 账号（system）
     if not await db.scalar(select(User).where(User.email == "ops-agent@community.local")):
         db.add(User(email="ops-agent@community.local", name="运维助手", account_type="system", role="member", status="active"))
+    # 外部回帖 Agent 账号（system，承载外部 Agent 回复）
+    if not await db.scalar(select(User).where(User.email == "external-agent@community.local")):
+        db.add(User(email="external-agent@community.local", name="外部智能体", account_type="system", role="member", status="active"))
     await db.commit()

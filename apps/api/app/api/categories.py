@@ -25,10 +25,19 @@ async def _to_out(db: AsyncSession, cat: Category, user: User | None) -> Categor
     ai_admin = await db.scalar(
         select(CategoryAiAdmin).where(CategoryAiAdmin.category_id == cat.id, CategoryAiAdmin.active.is_(True))
     )
+    # 外部 Agent 名称（绑定外部回帖源时前端展示）
+    external_agent_name = None
+    if cat.external_agent_id:
+        from app.models import ExternalAgent
+
+        ext = await db.get(ExternalAgent, cat.external_agent_id)
+        if ext and ext.deleted_at is None:
+            external_agent_name = ext.name
     return CategoryOut(
-        **{k: getattr(cat, k) for k in ("id", "slug", "name", "description", "icon", "sort_order", "allow_post", "auto_reply_enabled", "reply_threshold", "notify_human_on_no_evidence")},
+        **{k: getattr(cat, k) for k in ("id", "slug", "name", "description", "icon", "sort_order", "allow_post", "post_permission", "auto_reply_enabled", "reply_threshold", "notify_human_on_no_evidence", "external_agent_id", "relevance_check_enabled", "reply_to_author_questions")},
         post_count=post_count or 0,
         is_subscribed=is_sub,
+        external_agent_name=external_agent_name,
         ai_admin=AiAdminBrief(id=ai_admin.id, persona_name=ai_admin.persona_name, persona_avatar=ai_admin.persona_avatar, active=ai_admin.active) if ai_admin else None,
     )
 
