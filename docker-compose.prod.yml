@@ -6,6 +6,8 @@ services:
     build: ./apps/api
     container_name: community-api
     env_file: .env
+    environment:
+      - TZ=Asia/Shanghai
     restart: unless-stopped
     volumes:
       - uploads:/app/uploads
@@ -17,6 +19,8 @@ services:
     container_name: community-worker
     command: ["python", "-m", "app.tasks.worker"]
     env_file: .env
+    environment:
+      - TZ=Asia/Shanghai
     restart: unless-stopped
     volumes:
       - uploads:/app/uploads
@@ -26,6 +30,8 @@ services:
   web:
     build: ./apps/web
     container_name: community-web
+    environment:
+      - TZ=Asia/Shanghai
     restart: unless-stopped
     depends_on:
       - api
@@ -35,14 +41,20 @@ services:
   nginx:
     image: nginx:1.27-alpine
     container_name: community-nginx
+    environment:
+      - TZ=Asia/Shanghai
     restart: unless-stopped
     depends_on:
       - web
       - api
-    ports:
-      - "8090:80"
+    networks:
+      - default
+      - back
     volumes:
       - ./docker/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
 
+networks:
+  back:
+    external: true
 volumes:
   uploads:
