@@ -9,6 +9,8 @@ type Cat = {
   id: number; slug: string; name: string; description?: string; icon?: string;
   sort_order: number; allow_post: boolean; post_permission: string; auto_reply_enabled: boolean;
   reply_threshold: number; notify_human_on_no_evidence: boolean;
+  external_agent_id?: number | null; external_agent_name?: string | null;
+  relevance_check_enabled?: boolean; reply_to_author_questions?: boolean;
   post_count?: number; ai_admin?: any; admins?: { user_id: number; name: string; email: string }[];
 };
 
@@ -19,6 +21,7 @@ export function CategoryManager() {
   const [aiEditing, setAiEditing] = useState<Cat | null>(null);
   const [adminBinding, setAdminBinding] = useState<Cat | null>(null);
   const [iconPickerFor, setIconPickerFor] = useState<"edit" | "create" | null>(null);
+  const [externalAgents, setExternalAgents] = useState<any[]>([]);
   const [msg, setMsg] = useState("");
 
   const reload = async () => {
@@ -29,6 +32,7 @@ export function CategoryManager() {
     setCats(list);
   };
   useEffect(() => { reload(); }, []);
+  useEffect(() => { http.get("/admin/external-agents").then(setExternalAgents).catch(() => {}); }, []);
 
   const saveCategory = async () => {
     if (!editing) return;
@@ -38,6 +42,9 @@ export function CategoryManager() {
       post_permission: editing.post_permission,
       auto_reply_enabled: editing.auto_reply_enabled, reply_threshold: Number(editing.reply_threshold),
       notify_human_on_no_evidence: editing.notify_human_on_no_evidence,
+      external_agent_id: editing.external_agent_id || null,
+      relevance_check_enabled: editing.relevance_check_enabled,
+      reply_to_author_questions: editing.reply_to_author_questions,
     });
     setEditing(null);
     setMsg("已保存");
@@ -104,6 +111,8 @@ export function CategoryManager() {
                 <td className="py-3">
                   {c.ai_admin ? (
                     <span className="rounded bg-[#0969da]/10 px-1.5 py-0.5 text-[12px] text-[#0969da]">{c.ai_admin.persona_name}</span>
+                  ) : c.external_agent_id ? (
+                    <span className="rounded bg-[#7c3aed]/10 px-1.5 py-0.5 text-[12px] text-[#7c3aed]">{c.external_agent_name || "外部 Agent"}</span>
                   ) : <span className="text-[#656d76]">未配置</span>}
                 </td>
                 <td className="py-3 text-[#656d76]">
@@ -123,6 +132,7 @@ export function CategoryManager() {
         </table>
       </div>
 
+      {/* 编辑栏目（模态） */}
       <Modal open={!!editing} title="编辑栏目" width={560} onClose={() => setEditing(null)}>
         {editing && (
           <div className="space-y-3">
@@ -133,7 +143,11 @@ export function CategoryManager() {
               </div>
               <div>
                 <label className="mb-1 block text-[12px] text-[#656d76]">图标</label>
-                <button type="button" onClick={() => setIconPickerFor("edit")} className="flex h-9 w-full items-center gap-2 rounded border border-[#d0d7de] px-2 text-sm hover:border-[#0969da]">
+                <button
+                  type="button"
+                  onClick={() => setIconPickerFor("edit")}
+                  className="flex h-9 w-full items-center gap-2 rounded border border-[#d0d7de] px-2 text-sm hover:border-[#0969da]"
+                >
                   <span className="text-[18px]">{editing.icon || "📁"}</span>
                   <span className="text-[#656d76]">点击选择</span>
                 </button>
@@ -146,7 +160,11 @@ export function CategoryManager() {
             <div className="grid grid-cols-3 gap-3">
               <div>
                 <label className="mb-1 block text-[12px] text-[#656d76]">发帖权限</label>
-                <select value={editing.post_permission || "public"} onChange={(e) => setEditing({ ...editing, post_permission: e.target.value })} className="w-full rounded border border-[#d0d7de] px-2 py-1.5 text-sm">
+                <select
+                  value={editing.post_permission || "public"}
+                  onChange={(e) => setEditing({ ...editing, post_permission: e.target.value })}
+                  className="w-full rounded border border-[#d0d7de] px-2 py-1.5 text-sm"
+                >
                   <option value="public">公开（所有成员可发）</option>
                   <option value="staff_only">仅管理员可发</option>
                   <option value="closed">关闭（仅系统/Agent）</option>
@@ -163,6 +181,29 @@ export function CategoryManager() {
             <label className="flex items-center gap-2 text-sm">
               <input type="checkbox" checked={editing.notify_human_on_no_evidence} onChange={(e) => setEditing({ ...editing, notify_human_on_no_evidence: e.target.checked })} /> 无证据时通知人工
             </label>
+            <div>
+              <label className="mb-1 block text-[12px] text-[#656d76]">
+                外部回帖源（绑定后新帖/楼主追问由第三方 Agent 回复；留空用内置 AI 管理员）
+              </label>
+              <select
+                value={editing.external_agent_id || ""}
+                onChange={(e) => setEditing({ ...editing, external_agent_id: e.target.value ? Number(e.target.value) : null })}
+                className="w-full rounded border border-[#d0d7de] px-2 py-1.5 text-sm"
+              >
+                <option value="">（内置 AI 管理员）</option>
+                {externalAgents.map((a) => <option key={a.id} value={a.id}>{a.name}（{a.protocol}）</option>)}
+              </select>
+            </div>
+            <div className="flex flex-wrap gap-4">
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={editing.relevance_check_enabled} onChange={(e) => setEditing({ ...editing, relevance_check_enabled: e.target.checked })} />
+                主题相关性审核（发帖/回复与栏目主题不相关 → 不通过）
+              </label>
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={editing.reply_to_author_questions} onChange={(e) => setEditing({ ...editing, reply_to_author_questions: e.target.checked })} />
+                楼主追问自动回复（楼主评论是提问才回复，闲聊不回复）
+              </label>
+            </div>
             <div className="flex justify-end gap-2 pt-2">
               <button onClick={() => setEditing(null)} className="rounded border border-[#d0d7de] px-3 py-1.5 text-[13px]">取消</button>
               <button onClick={saveCategory} className="rounded-md bg-[#0969da] px-3 py-1.5 text-[13px] text-white">保存</button>
@@ -171,6 +212,7 @@ export function CategoryManager() {
         )}
       </Modal>
 
+      {/* 新建栏目（模态） */}
       <Modal open={!!creating} title="新建栏目" width={560} onClose={() => setCreating(null)}>
         {creating && (
           <div className="space-y-3">
@@ -185,7 +227,11 @@ export function CategoryManager() {
               </div>
               <div>
                 <label className="mb-1 block text-[12px] text-[#656d76]">图标</label>
-                <button type="button" onClick={() => setIconPickerFor("create")} className="flex h-9 w-full items-center gap-2 rounded border border-[#d0d7de] px-2 text-sm hover:border-[#0969da]">
+                <button
+                  type="button"
+                  onClick={() => setIconPickerFor("create")}
+                  className="flex h-9 w-full items-center gap-2 rounded border border-[#d0d7de] px-2 text-sm hover:border-[#0969da]"
+                >
                   <span className="text-[18px]">{creating.icon || "📁"}</span>
                   <span className="text-[#656d76]">点击选择</span>
                 </button>
@@ -197,7 +243,11 @@ export function CategoryManager() {
             </div>
             <div>
               <label className="mb-1 block text-[12px] text-[#656d76]">发帖权限</label>
-              <select value={creating.post_permission || "public"} onChange={(e) => setCreating({ ...creating, post_permission: e.target.value })} className="w-full rounded border border-[#d0d7de] px-2 py-1.5 text-sm">
+              <select
+                value={creating.post_permission || "public"}
+                onChange={(e) => setCreating({ ...creating, post_permission: e.target.value })}
+                className="w-full rounded border border-[#d0d7de] px-2 py-1.5 text-sm"
+              >
                 <option value="public">公开（所有成员可发）</option>
                 <option value="staff_only">仅管理员可发</option>
                 <option value="closed">关闭（仅系统/Agent）</option>
@@ -211,6 +261,7 @@ export function CategoryManager() {
         )}
       </Modal>
 
+      {/* AI 管理员配置（模态） */}
       <Modal open={!!aiEditing} title={`AI 管理员配置 · ${aiEditing?.name || ""}`} width={640} onClose={() => setAiEditing(null)}>
         {aiEditing && (
           <div className="space-y-3">
@@ -223,10 +274,12 @@ export function CategoryManager() {
         )}
       </Modal>
 
+      {/* 绑定管理员（模态，可搜索） */}
       <Modal open={!!adminBinding} title={`绑定管理员 · ${adminBinding?.name || ""}`} width={520} onClose={() => setAdminBinding(null)}>
         {adminBinding && <AdminPicker cat={adminBinding} onDone={() => { setAdminBinding(null); reload(); }} />}
       </Modal>
 
+      {/* 图标选择器 */}
       <EmojiPicker
         open={!!iconPickerFor}
         value={iconPickerFor === "edit" ? editing?.icon || "" : creating?.icon || ""}
@@ -305,7 +358,13 @@ function AdminPicker({ cat, onDone }: { cat: Cat; onDone: () => void }) {
   return (
     <div className="space-y-3">
       <div className="flex gap-2">
-        <input value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === "Enter" && search()} placeholder="搜索 ID / 邮箱 / 名字" className="flex-1 rounded border border-[#d0d7de] px-2 py-1.5 text-sm" />
+        <input
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && search()}
+          placeholder="搜索 ID / 邮箱 / 名字"
+          className="flex-1 rounded border border-[#d0d7de] px-2 py-1.5 text-sm"
+        />
         <button onClick={search} className="rounded-md border border-[#d0d7de] px-3 py-1.5 text-[13px] hover:bg-[#f3f4f6]">搜索</button>
       </div>
       <div className="max-h-[320px] space-y-1 overflow-y-auto">
