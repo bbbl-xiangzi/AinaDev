@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth";
 import { http } from "@/lib/api";
@@ -8,20 +8,39 @@ import { PostCard } from "@/components/PostCard";
 import { Avatar, MarkdownView, TimeAgo } from "@/components/ui";
 
 export default function MePage() {
-  const { user, logout } = useAuth();
+  const { user, logout, refreshUser } = useAuth();
   const router = useRouter();
-  const [tab, setTab] = useState<"posts" | "favorites" | "notifications">("posts");
+  const [tab, setTab] = useState<"posts" | "favorites" | "notifications" | "tickets">("posts");
   const [posts, setPosts] = useState<any[]>([]);
   const [favs, setFavs] = useState<any[]>([]);
   const [notifs, setNotifs] = useState<any>({ items: [], unread: 0 });
+  const [tickets, setTickets] = useState<any>({ balance: 0, total_earned: 0, items: [] });
+  const [wallet, setWallet] = useState<{ balance: number; total_earned: number }>({ balance: 0, total_earned: 0 });
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const onAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    const fd = new FormData();
+    fd.append("file", f);
+    try {
+      const res = await http.upload("/me/avatar", fd);
+      refreshUser?.();
+    } catch (err: any) {
+      alert(err?.message || "上传失败");
+    }
+  };
 
   useEffect(() => {
     if (!user) {
       router.push("/login");
       return;
     }
-    // 进入「我的」页即清空未读角标（Header 通过路由变化自动刷新）
     http.post("/me/notifications/read-all").catch(() => {});
+    // 进入页面就拉余额（左侧卡片显示）——只取余额字段，不拉明细避免竞争
+    http.get("/me/tickets?page_size=1").then((d: any) => {
+      setWallet({ balance: d.balance || 0, total_earned: d.total_earned || 0 });
+    }).catch(() => {});
     loadTab(tab);
   }, [user, tab]);
 
@@ -29,6 +48,10 @@ export default function MePage() {
     if (t === "posts") http.get("/me/posts?page_size=50").then((d: any) => setPosts(d.items || []));
     if (t === "favorites") http.get("/me/favorites").then(setFavs);
     if (t === "notifications") http.get("/me/notifications?page_size=50").then(setNotifs);
+    if (t === "tickets") http.get("/me/tickets?page_size=50").then((d: any) => {
+      setTickets(d);
+      setWallet({ balance: d.balance || 0, total_earned: d.total_earned || 0 });
+    });
   };
 
   if (!user) return null;
@@ -37,10 +60,23 @@ export default function MePage() {
     <div className="mx-auto flex max-w-[1012px] gap-8 px-4 py-6">
       <div className="w-[220px] shrink-0">
         <div className="rounded-lg border border-[#d0d7de] bg-white p-6 text-center">
-          <div className="flex justify-center"><Avatar name={user.name} url={user.avatar_url} size={64} /></div>
+          <div className="flex justify-center">
+            <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={onAvatarChange} />
+            <button onClick={() => fileRef.current?.click()} title="点击更换头像" className="rounded-full hover:opacity-80">
+              <Avatar name={user.name} url={user.avatar_url} size={64} />
+            </button>
+          </div>
           <div className="mt-3 text-[16px] font-semibold">{user.name}</div>
           <div className="text-[13px] text-[#656d76]">{user.email}</div>
           <div className="mt-1 text-[12px] text-[#656d76]">{user.role === "super_admin" ? "超级管理员" : "成员"} · 加入于 {new Date(user.created_at).toLocaleDateString("zh-CN")}</div>
+
+          {/* Ticket 余额卡片 */}
+          <div className="mt-4 rounded-lg bg-gradient-to-br from-amber-50 to-amber-100/50 p-3">
+            <div className="text-[12px] text-[#9a6700]">我的 ⭐ Ticket</div>
+            <div className="mt-1 text-[28px] font-bold leading-none text-[#b45309]">{wallet.balance.toFixed(1)}</div>
+            <div className="mt-1 text-[11px] text-[#9a6700]/80">累计获得 {wallet.total_earned.toFixed(1)}</div>
+          </div>
+
           <div className="mt-4 flex justify-center gap-2">
             <button onClick={logout} className="rounded-md border border-[#d0d7de] px-3 py-1.5 text-[13px] text-[#656d76] hover:bg-[#f3f4f6]">退出登录</button>
             {user.role === "super_admin" && <button onClick={() => router.push("/admin")} className="rounded-md bg-[#0969da] px-3 py-1.5 text-[13px] text-white">管理后台</button>}
@@ -53,6 +89,7 @@ export default function MePage() {
             { key: "posts", label: "我发的" },
             { key: "favorites", label: "我赞过的" },
             { key: "notifications", label: `通知${notifs.unread ? `（${notifs.unread}）` : ""}` },
+            { key: "tickets", label: "⭐ Ticket 明细" },
           ] as const).map((t) => (
             <button key={t.key} onClick={() => setTab(t.key)} className={`border-b-2 px-3 py-2 text-sm font-medium ${tab === t.key ? "border-[#0969da] text-[#0969da]" : "border-transparent text-[#656d76]"}`}>
               {t.label}
@@ -83,6 +120,22 @@ export default function MePage() {
                   </button>
                 </div>
               )}
+            </div>
+          )}
+          {tab === "tickets" && (
+            <div>
+              {tickets.items.length === 0 && <div className="py-16 text-center text-sm text-[#656d76]">还没有 Ticket 流水，去发帖/回帖/点赞赚星星吧</div>}
+              {tickets.items.map((t: any) => (
+                <div key={t.id} className="flex items-center justify-between border-b border-[#d0d7de]/50 px-1 py-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[14px] font-medium text-[#24292f]">{t.note || t.action_key}</div>
+                    <div className="mt-0.5 text-[12px] text-[#656d76]"><TimeAgo iso={t.created_at} /></div>
+                  </div>
+                  <div className={`text-[15px] font-semibold ${t.amount > 0 ? "text-[#1a7f37]" : "text-[#cf222e]"}`}>
+                    {t.amount > 0 ? "+" : ""}{t.amount.toFixed(1)} ⭐
+                  </div>
+                </div>
+              ))}
             </div>
           )}
         </div>
