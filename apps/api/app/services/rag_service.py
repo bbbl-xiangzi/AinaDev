@@ -17,6 +17,10 @@ async def parse_document(path: str | None, url: str | None, file_type: str, orig
     if file_type == "url":
         if not url:
             raise ValueError("URL 为空")
+        # SSRF 防护：抓取前再次校验目标地址
+        from app.core.net_safety import assert_safe_url
+
+        assert_safe_url(url, "导入地址")
         fetched = trafilatura.fetch_url(url)
         if not fetched:
             raise ValueError("URL 抓取失败")
@@ -48,32 +52,53 @@ async def parse_document(path: str | None, url: str | None, file_type: str, orig
 
 
 # ---------- 切片 ----------
-def chunk_text(text: str, chunk_size: int = 800, overlap: int = 100) -> list[str]:
-    """按段落聚合切片：优先按标题/段落边界切，超长则硬切。"""
+def chunk_text(text: str, chunk_size: int = 600, overlap: int = 80) -> list[str]:
+    """标题感知切片：优先按 Markdown 标题分节聚合；无标题则按段落聚合；超长段落硬切。
+
+    - chunk_size 600 / overlap 80：长文档会切出多个块，提升向量检索召回粒度。
+    - 标题行随所在节保留，便于定位出处。
+    """
     # 规范化空白
     text = re.sub(r"\r\n", "\n", text)
     text = re.sub(r"\n{3,}", "\n\n", text).strip()
     if not text:
         return []
 
-    paragraphs = [p.strip() for p in re.split(r"\n\s*\n", text) if p.strip()]
+    # 按 Markdown 标题行（^#{1,6} ）切分为「节」，标题行保留在节内
+    lines = text.split("\n")
+    sections: list[list[str]] = []
+    cur: list[str] = []
+    for line in lines:
+        if re.match(r"^#{1,6}\s", line) and cur:
+            sections.append(cur)
+            cur = []
+        cur.append(line)
+    if cur:
+        sections.append(cur)
+
     chunks: list[str] = []
-    current = ""
-    for para in paragraphs:
-        if len(current) + len(para) + 2 <= chunk_size:
-            current = f"{current}\n\n{para}" if current else para
-        else:
-            if current:
-                chunks.append(current)
-            if len(para) > chunk_size:
-                # 长段落硬切
-                for i in range(0, len(para), chunk_size - overlap):
-                    chunks.append(para[i : i + chunk_size])
-                current = ""
+    for sec in sections:
+        sec_text = "\n".join(sec).strip()
+        if not sec_text:
+            continue
+        # 节内按空行分段聚合
+        paragraphs = [p.strip() for p in re.split(r"\n\s*\n", sec_text) if p.strip()]
+        current = ""
+        for para in paragraphs:
+            if len(current) + len(para) + 2 <= chunk_size:
+                current = f"{current}\n\n{para}" if current else para
             else:
-                current = para
-    if current:
-        chunks.append(current)
+                if current:
+                    chunks.append(current)
+                if len(para) > chunk_size:
+                    # 长段落硬切
+                    for i in range(0, len(para), chunk_size - overlap):
+                        chunks.append(para[i : i + chunk_size])
+                    current = ""
+                else:
+                    current = para
+        if current:
+            chunks.append(current)
     return chunks
 
 
