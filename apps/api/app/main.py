@@ -16,13 +16,43 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 logger = logging.getLogger(__name__)
 
 
+def _assert_production_secrets() -> None:
+    """生产环境必须使用非默认密钥，否则拒绝启动（防客户部署带病运行）。"""
+    if settings.app_env != "production":
+        return
+    weak = {
+        "JWT_SECRET": settings.jwt_secret,
+        "AES_KEY": settings.aes_key,
+        "MCP_API_KEY": settings.mcp_api_key,
+    }
+    bad = [k for k, v in weak.items() if not v or v.startswith("change-me") or len(v) < 16]
+    if bad:
+        raise RuntimeError(
+            f"生产环境必须配置安全的 {', '.join(bad)}（.env 中设置，勿用默认值）；已拒绝启动")
+
+
 async def init_db_and_seed() -> None:
     """建表 + 种子数据。"""
+    _assert_production_secrets()
     import app.models  # noqa: F401  确保所有模型注册
     from app.models import Category, ModelConfig, User
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        # 轻量迁移：categories 加 post_permission 列（老库）
+        from sqlalchemy import text
+        await conn.execute(text("ALTER TABLE categories ADD COLUMN IF NOT EXISTS post_permission VARCHAR(20) NOT NULL DEFAULT 'public'"))
+        await conn.execute(text("UPDATE categories SET post_permission='closed' WHERE allow_post=false AND post_permission='public'"))
+        # ai_news_sources 加 config 列（老库）+ type 从 enum 改成 varchar
+        await conn.execute(text("ALTER TABLE ai_news_sources ADD COLUMN IF NOT EXISTS config JSON"))
+        await conn.execute(text("ALTER TABLE ai_news_sources ALTER COLUMN type TYPE VARCHAR(20) USING type::VARCHAR"))
+        # 轻量迁移：栏目外部回帖源 / 相关性审核 / 楼主评论回复
+        await conn.execute(text("ALTER TABLE categories ADD COLUMN IF NOT EXISTS external_agent_id INTEGER"))
+        await conn.execute(text("ALTER TABLE categories ADD COLUMN IF NOT EXISTS relevance_check_enabled BOOLEAN NOT NULL DEFAULT false"))
+        await conn.execute(text("ALTER TABLE categories ADD COLUMN IF NOT EXISTS reply_to_author_questions BOOLEAN NOT NULL DEFAULT false"))
+        # 轻量迁移：帖子/回复审核不通过原因
+        await conn.execute(text("ALTER TABLE posts ADD COLUMN IF NOT EXISTS review_reason TEXT"))
+        await conn.execute(text("ALTER TABLE replies ADD COLUMN IF NOT EXISTS review_reason TEXT"))
 
     async with SessionLocal() as db:
         # 1) 系统账号（官方公告 / 运维 Agent）
@@ -50,16 +80,16 @@ async def init_db_and_seed() -> None:
         # 3) 默认栏目
         if not await db.scalar(select(Category).where(Category.deleted_at.is_(None))):
             defaults = [
-                ("announcements", "公告", "版本更新与官方通知", "📣", 0, True, False),
-                ("product", "AI 产品交流", "Agent 开发、产品功能讨论", "🤖", 1, True, True),
-                ("qa", "使用答疑", "常见问题与技术支持", "❓", 2, True, True),
-                ("ai-news", "AI 资讯", "每日 AI 行业资讯（运维 Agent 自动发布）", "📰", 3, False, True),
+                ("announcements", "公告", "版本更新与官方通知", "📣", 0, True, "staff_only", False),
+                ("product", "AI 产品交流", "Agent 开发、产品功能讨论", "🤖", 1, True, "public", True),
+                ("qa", "使用答疑", "常见问题与技术支持", "❓", 2, True, "public", True),
+                ("ai-news", "AI 资讯", "每日 AI 行业资讯（运维 Agent 自动发布）", "📰", 3, False, "closed", True),
             ]
-            for slug, name, desc, icon, sort, allow, auto in defaults:
+            for slug, name, desc, icon, sort, allow, perm, auto in defaults:
                 db.add(
                     Category(
                         slug=slug, name=name, description=desc, icon=icon,
-                        sort_order=sort, allow_post=allow, auto_reply_enabled=auto,
+                        sort_order=sort, allow_post=allow, post_permission=perm, auto_reply_enabled=auto,
                     )
                 )
             logger.info("created default categories")
@@ -85,6 +115,11 @@ async def init_db_and_seed() -> None:
                     admin_email, admin_pwd,
                 )
         await db.commit()
+
+    # 5) ticket 默认奖励配置
+    from app.services.ticket_service import seed_default_tickets
+    async with SessionLocal() as db:
+        await seed_default_tickets(db)
 
 
 # MCP Server（豆包工作等 MCP 客户端接入，URL: /mcp）

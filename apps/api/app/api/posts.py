@@ -1,10 +1,11 @@
 """帖子 API：发帖、Feed、详情、搜索、互动。"""
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_db
 from app.core.deps import get_current_user, get_optional_user
+from app.core.ratelimit import check_rate, client_ip
 from app.models import Category, CategoryHumanAdmin, Post, Reply, Subscription, User
 from app.schemas import PostIn, PostListOut, PostOut, ReplyIn, ReplyOut, SearchQuery
 from app.services.audit_service import audit
@@ -72,6 +73,8 @@ async def _reply_to_out(db: AsyncSession, r: Reply, user: User | None) -> ReplyO
 
 @router.post("/posts", response_model=PostOut)
 async def create_post(body: PostIn, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    # 发帖频率限制（防刷 LLM 算力：发帖即触发 AI 审核+AI 回复）
+    await check_rate(f"rl:post:user:{user.id}", 6, 60, "发帖过于频繁，请稍后再试")
     cat = await db.get(Category, body.category_id)
     if not cat or cat.deleted_at is not None:
         raise HTTPException(status_code=404, detail="栏目不存在")
@@ -185,7 +188,7 @@ async def get_post(
             await db.commit()
         except Exception:
             pass
-    return await _post_to_out(db, post, user)
+    return await _post_to_out(db, user=user, p=post)
 
 
 @router.get("/posts/{post_id}/replies", response_model=list[ReplyOut])
@@ -223,6 +226,7 @@ async def create_reply(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    await check_rate(f"rl:reply:user:{user.id}", 12, 60, "回复过于频繁，请稍后再试")
     post = await db.get(Post, post_id)
     if not post or post.status != "published" or post.deleted_at is not None:
         raise HTTPException(status_code=404, detail="帖子不存在")
@@ -368,7 +372,7 @@ async def unsubscribe_category(post_id: int, user: User = Depends(get_current_us
     if not post:
         raise HTTPException(status_code=404, detail="帖子不存在")
     sub = await db.scalar(
-        select(Subscription.id).where(
+        select(Subscription).where(
             Subscription.user_id == user.id, Subscription.category_id == post.category_id, Subscription.tag.is_(None)
         )
     )
@@ -420,6 +424,7 @@ async def search(
     category_id: int | None = None,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=50),
+    request: Request = None,
     db: AsyncSession = Depends(get_db),
 ):
     """搜索：jieba 中文分词 + 多词模糊匹配（默认，跨环境一致）；
@@ -427,6 +432,9 @@ async def search(
     from sqlalchemy import text as sa_text
 
     from app.config import settings
+
+    if request:
+        await check_rate(f"rl:search:ip:{client_ip(request)}", 30, 60, "搜索过于频繁，请稍后再试")
 
     stmt = select(Post).where(Post.status == "published", Post.deleted_at.is_(None))
 

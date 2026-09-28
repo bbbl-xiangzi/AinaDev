@@ -1,5 +1,6 @@
-"""管理：RAG 知识库（上传文件 / URL / 列表 / 删除 / 重建 / 启停 / 下载 / 切片）。"""
+"""管理：RAG 知识库（上传文件 / URL / 列表 / 删除 / 重建 / 启停）。"""
 import shutil
+import uuid
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
@@ -9,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.core.db import get_db
 from app.core.deps import require_super_admin
+from app.core.net_safety import assert_safe_url
 from app.models import RagChunk, RagDocument, User
 from app.schemas import RagDocumentOut
 from app.services.audit_service import audit
@@ -30,69 +32,81 @@ async def list_documents(category_id: int | None = None, admin: User = Depends(r
     stmt = select(RagDocument).where(RagDocument.deleted_at.is_(None))
     if category_id:
         stmt = stmt.where(RagDocument.category_id == category_id)
-    stmt = stmt.order_by(RagDocument.created_at.desc())
-    return [_doc_out(d) for d in await db.scalars(stmt)]
+    rows = list(await db.scalars(stmt.order_by(RagDocument.created_at.desc())))
+    return [_doc_out(d) for d in rows]
 
 
-@router.post("/upload")
+@router.post("/upload", response_model=RagDocumentOut)
 async def upload_document(
-    file: UploadFile = File(...),
     category_id: int = Form(...),
+    file: UploadFile = File(...),
     admin: User = Depends(require_super_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    from app.services.document_service import process_document
-    from app.tasks.worker import enqueue
-
     ext = Path(file.filename or "").suffix.lower()
-    ftype = next((k for k, v in ALLOWED_TYPES.items() if v == ext), None)
-    if not ftype:
-        raise HTTPException(status_code=400, detail=f"不支持的文件类型 {ext}，仅支持：pdf/docx/md/txt")
+    file_type = next((k for k, v in ALLOWED_TYPES.items() if v == ext), None)
+    if not file_type:
+        raise HTTPException(status_code=400, detail="仅支持 PDF / DOCX / MD / TXT")
 
-    import time
-
-    save_dir = Path(settings.upload_dir) / "rag" / str(time.time())
-    save_dir.mkdir(parents=True, exist_ok=True)
-    dest = save_dir / (file.filename or "unnamed")
+    # 存储到隔离目录 data/rag_docs（不挂在 /uploads 静态目录，防内部资料公开）；
+    # 文件名使用 uuid（不使用用户文件名，防路径穿越）
+    rag_root = Path(settings.rag_docs_dir)
+    rag_root.mkdir(parents=True, exist_ok=True)
+    stored_name = f"rag_{uuid.uuid4().hex}{ext}"
+    dest = rag_root / stored_name
     with dest.open("wb") as f:
         shutil.copyfileobj(file.file, f)
 
     doc = RagDocument(
-        category_id=category_id, filename=file.filename or "unnamed",
-        storage_path=str(dest), file_type=ftype, status="pending", chunk_count=0, enabled=True,
+        category_id=category_id, filename=file.filename or "unnamed", file_type=file_type,
+        storage_path=f"data/rag_docs/{stored_name}", uploader_id=admin.id, status="parsing",
     )
     db.add(doc)
     await db.commit()
     await db.refresh(doc)
+
+    from app.tasks.worker import enqueue
+
     try:
         await enqueue("parse_rag_document_task", doc.id)
     except Exception:
+        from app.services.document_service import process_document
+
         await process_document(db, doc.id)
     await audit(db, "user", admin.id, "rag_doc_upload", "rag_document", doc.id, {"filename": doc.filename})
     return _doc_out(doc)
 
 
-@router.post("/url")
+@router.post("/url", response_model=RagDocumentOut)
 async def add_url_document(
-    url: str = Form(...),
     category_id: int = Form(...),
+    url: str = Form(...),
+    name: str | None = Form(None),
     admin: User = Depends(require_super_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    from app.services.document_service import process_document
-    from app.tasks.worker import enqueue
-
+    # SSRF 防护：创建时即校验目标地址（禁止私网/回环/云元数据）
+    try:
+        assert_safe_url(url, "导入地址")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     doc = RagDocument(
-        category_id=category_id, filename=url[:200], storage_path=url, file_type="url", status="pending", chunk_count=0, enabled=True,
+        category_id=category_id, filename=name or url[:200], file_type="url",
+        storage_path=url, uploader_id=admin.id, status="parsing",
     )
     db.add(doc)
     await db.commit()
     await db.refresh(doc)
+
+    from app.tasks.worker import enqueue
+
     try:
         await enqueue("parse_rag_document_task", doc.id)
     except Exception:
+        from app.services.document_service import process_document
+
         await process_document(db, doc.id)
-    await audit(db, "user", admin.id, "rag_doc_url", "rag_document", doc.id, {"url": url})
+    await audit(db, "user", admin.id, "rag_doc_add_url", "rag_document", doc.id, {"url": url})
     return _doc_out(doc)
 
 
@@ -126,7 +140,11 @@ async def download_document(doc_id: int, admin: User = Depends(require_super_adm
         raise HTTPException(status_code=404, detail="文档不存在")
     if doc.file_type == "url":
         return RedirectResponse(url=doc.storage_path or "/")
+    # 新文档存 data/rag_docs；兼容旧的 uploads 相对路径
     path = Path(doc.storage_path or "")
+    if not path.exists():
+        alt = Path(settings.upload_dir) / doc.storage_path
+        path = alt if alt.exists() else path
     if not path.exists():
         raise HTTPException(status_code=404, detail="文件不存在或已被清理")
     return FileResponse(path=str(path), filename=doc.filename or path.name)

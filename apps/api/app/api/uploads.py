@@ -36,6 +36,29 @@ async def _get_config(db: AsyncSession) -> tuple[set[str], int]:
     return allowed, max_mb
 
 
+def _check_magic(content: bytes, ext: str) -> bool:
+    """真实文件头校验：图片/PDF/ZIP 容器类必须匹配魔数，文本类放行。"""
+    if ext in ("png",):
+        return content[:8] == b"\x89PNG\r\n\x1a\n"
+    if ext in ("jpg", "jpeg"):
+        return content[:3] == b"\xff\xd8\xff"
+    if ext in ("gif",):
+        return content[:6] in (b"GIF87a", b"GIF89a")
+    if ext == "webp":
+        return content[:4] == b"RIFF" and content[8:12] == b"WEBP"
+    if ext == "bmp":
+        return content[:2] == b"BM"
+    if ext == "pdf":
+        return content[:4] == b"%PDF"
+    if ext in ("zip",):
+        return content[:2] == b"PK"
+    if ext in ("doc", "docx", "xls", "xlsx"):
+        # OLE (D0 CF 11 E0) 或 ZIP 容器（docx/xlsx 是 zip）
+        return content[:4] in (b"\xd0\xcf\x11\xe0", b"PK\x03\x04")
+    # txt/md/csv 等文本类不做魔数校验
+    return True
+
+
 def _file_type(ext: str) -> str:
     if ext in IMAGE_EXT:
         return "image"
@@ -62,6 +85,8 @@ async def upload_file(
     content = await file.read()
     if len(content) > max_mb * 1024 * 1024:
         raise HTTPException(status_code=400, detail=f"文件超过大小限制（{max_mb}MB）")
+    if not _check_magic(content, ext):
+        raise HTTPException(status_code=400, detail=f"文件内容与扩展名不匹配（.{ext}），已拒绝")
 
     # 存储：uploads/yyyy/mm/uuid.ext
     now = datetime.now(timezone.utc)

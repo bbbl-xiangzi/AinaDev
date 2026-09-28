@@ -4,7 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_db
-from app.core.deps import get_current_user, require_super_admin
+from app.core.deps import require_super_admin
 from app.core.security import aes_encrypt
 from app.models import Category, ExternalAgent, User
 from app.schemas import ExternalAgentIn, ExternalAgentOut
@@ -23,7 +23,7 @@ def _out(a: ExternalAgent) -> ExternalAgentOut:
 
 
 @router.get("", response_model=list[ExternalAgentOut])
-async def list_external_agents(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def list_external_agents(admin: User = Depends(require_super_admin), db: AsyncSession = Depends(get_db)):
     rows = list(await db.scalars(select(ExternalAgent).where(ExternalAgent.deleted_at.is_(None)).order_by(ExternalAgent.id.desc())))
     return [_out(a) for a in rows]
 
