@@ -146,17 +146,19 @@ async def trigger_pipeline(db: AsyncSession, post_id: int, content_type: str = "
     author_name = ""
     if content_type == "post":
         post = await db.get(Post, post_id)
-        if not post:
+        # 防御：仅对「已发布且未删除」的帖子触发外部回帖 / AI 回复，
+        # 避免已删除 / 未过审的帖子（如资讯帖被删后）被重复触发
+        if not post or post.deleted_at is not None or post.status != "published":
             return trace_id
         category_id, author_id, title, body = post.category_id, post.author_id, post.title, post.body_md
         author = await db.get(User, post.author_id)
         author_name = author.name if author else ""
     else:
         reply = await db.get(Reply, post_id)
-        if not reply:
+        if not reply or reply.status != "published":
             return trace_id
         parent = await db.get(Post, reply.post_id)
-        if not parent:
+        if not parent or parent.deleted_at is not None or parent.status != "published":
             return trace_id
         category_id, author_id, title, body = parent.category_id, reply.author_id, parent.title, reply.body_md
         author = await db.get(User, reply.author_id)
