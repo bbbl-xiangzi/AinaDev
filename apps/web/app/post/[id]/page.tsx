@@ -136,6 +136,11 @@ function PostInner() {
             {post.locked && <span className="rounded bg-[#ffebe9] px-2 py-0.5 text-[12px] text-[#cf222e]">已锁定</span>}
             {post.status === "pending_review" && <span className="rounded bg-[#fff8c5] px-2 py-0.5 text-[12px] text-[#9a6700]">审核中（仅自己可见）</span>}
             {post.status === "rejected" && <span className="rounded bg-[#ffebe9] px-2 py-0.5 text-[12px] text-[#cf222e]">未通过审核</span>}
+            {post.status === "rejected" && post.review_reason && (
+              <span className="rounded bg-[#fff1f0] px-2 py-0.5 text-[12px] text-[#cf222e]">
+                原因：{post.review_reason}
+              </span>
+            )}
             <span className="text-[13px] text-[#656d76]">{post.category_name}</span>
           </div>
           <h1 className="mt-2 text-[20px] font-semibold leading-snug text-[#24292f]">{post.title}</h1>
@@ -198,6 +203,11 @@ function PostInner() {
                     {r.author_type !== "user" && (
                       <span className="rounded bg-[#0969da]/10 px-1.5 py-0.5 text-[11px] font-medium text-[#0969da]">
                         {r.author_type === "ai_admin" ? "AI 管理员" : "官方"}
+                      </span>
+                    )}
+                    {r.status === "pending_review" && (
+                      <span className="rounded bg-[#fff8c5] px-1.5 py-0.5 text-[11px] font-medium text-[#9a6700]">
+                        AI 回复审核中
                       </span>
                     )}
                     <span className="text-[#656d76]">·</span>
