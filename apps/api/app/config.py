@@ -16,13 +16,17 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379/0"
 
     # 安全
+    # 环境：development / production。production 下若密钥仍为默认值将拒绝启动（防客户部署带病运行）
+    app_env: str = "development"
     jwt_secret: str = "change-me"
     jwt_algorithm: str = "HS256"
-    jwt_access_expire_minutes: int = 720
-    jwt_refresh_expire_days: int = 30
+    jwt_access_expire_minutes: int = 120  # 收紧：改密后旧 token 最长 2h 有效
+    jwt_refresh_expire_days: int = 7
     aes_key: str = "change-me-32-bytes-hex-0123456789abcdef0123456789abcdef"
     mcp_api_key: str = "change-me-mcp-token"
     invite_expire_days: int = 7
+    # 出站请求安全：拦截私网/回环/云元数据地址（防 SSRF）。客户若需抓内网 RSS/资讯源，设 false
+    block_private_urls: bool = True
 
     # 默认模型（首次启动写入 model_configs）
     default_llm_base_url: str = "https://ark.cn-beijing.volces.com/api/v3"
@@ -30,6 +34,9 @@ class Settings(BaseSettings):
     default_llm_chat_model: str = "doubao-seed-1-6-250615"
     default_embedding_model: str = "doubao-embedding-large"
     default_embedding_dim: int = 2048
+
+    # RSSHub 自部署实例（容器网络内）
+    rsshub_base_url: str = "http://rsshub:1200"
 
     # 邮件（可选）
     smtp_host: str = ""
@@ -40,6 +47,8 @@ class Settings(BaseSettings):
 
     # 上传
     upload_dir: str = "./uploads"
+    # 知识库文档隔离目录（不挂在 /uploads 静态目录下，下载走后台鉴权接口，避免内部资料公开）
+    rag_docs_dir: str = "./data/rag_docs"
 
     # 检索后端自动适配：
     # vector_backend: numpy=JSONB+应用层余弦（Windows/无 pgvector 环境）| pgvector=SQL HNSW（生产 Linux/Docker）| weaviate=独立向量库
