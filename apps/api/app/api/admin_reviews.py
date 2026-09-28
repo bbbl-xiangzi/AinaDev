@@ -54,7 +54,7 @@ async def review_queue(user: User = Depends(get_current_user), db: AsyncSession 
             )
         )
 
-    # 2) 低置信 AI 回帖（pending_review）
+    # 2) 待审 AI/外部回复（pending_review：内置 AI 低置信 / 外部 Agent 回复未通过审核）
     replies = list(
         await db.scalars(
             select(Reply).where(Reply.status == "pending_review", Reply.deleted_at.is_(None)).order_by(Reply.created_at.asc())
@@ -65,12 +65,13 @@ async def review_queue(user: User = Depends(get_current_user), db: AsyncSession 
         if not post or not await _can_manage(db, user, post.category_id):
             continue
         author = await db.get(User, r.author_id)
+        reason = r.review_reason or "AI 自检低置信，待人工放行"
         items.append(
             ReviewItemOut(
                 kind="reply_low_conf", id=r.id, target_id=r.post_id, target_type="reply",
-                title=f"AI 回复待审（帖子：{post.title[:60]}", body=r.body_md[:500],
+                title=f"AI 回复待审（帖子：{post.title[:60]}）", body=r.body_md[:500],
                 author_name=author.name if author else None, created_at=r.created_at,
-                reason="AI 自检低置信，待人工放行",
+                reason=reason,
             )
         )
 
@@ -98,7 +99,7 @@ async def review_queue(user: User = Depends(get_current_user), db: AsyncSession 
             items.append(
                 ReviewItemOut(
                     kind="report", id=rep.id, target_id=rep.target_id, target_type="reply",
-                    title=f"举报回复（帖子：{post.title[:50]}", body=rep.reason,
+                    title=f"举报回复（帖子：{post.title[:50]}）", body=rep.reason,
                     created_at=rep.created_at, reason=f"举报人 #{rep.reporter_id}",
                 )
             )
@@ -167,8 +168,13 @@ async def review_action(
             raise HTTPException(status_code=403, detail="无权操作该栏目")
         if body.action == "approve":
             reply.status = "published"
+            reply.review_reason = None
         elif body.action in ("hide", "delete"):
             reply.status = "hidden" if body.action == "hide" else "deleted"
+            if body.action == "delete":
+                from datetime import datetime, timezone
+
+                reply.deleted_at = datetime.now(timezone.utc)
         else:
             raise HTTPException(status_code=400, detail="无效操作")
         await db.commit()
