@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_db
 from app.core.deps import get_current_user, get_optional_user
-from app.models import Category, Post, Reply, Subscription, User
+from app.models import Category, CategoryHumanAdmin, Post, Reply, Subscription, User
 from app.schemas import PostIn, PostListOut, PostOut, ReplyIn, ReplyOut, SearchQuery
 from app.services.audit_service import audit
 from app.services.notify_service import notify
@@ -42,7 +42,7 @@ async def _post_to_out(db: AsyncSession, p: Post, user: User | None) -> PostOut:
         title=p.title, body_md=p.body_md, post_type=p.post_type, status=p.status,
         pinned=p.pinned, featured=p.featured, locked=p.locked, is_solved=p.is_solved,
         tags=p.tags, attachments=p.attachments or [], view_count=p.view_count, like_count=p.like_count, reply_count=p.reply_count,
-        ai_handled=p.ai_handled, human_needed=p.human_needed,
+        ai_handled=p.ai_handled, human_needed=p.human_needed, review_reason=p.review_reason,
         created_at=p.created_at, updated_at=p.updated_at,
         is_liked=is_liked, is_subscribed=is_sub,
     )
@@ -65,7 +65,7 @@ async def _reply_to_out(db: AsyncSession, r: Reply, user: User | None) -> ReplyO
         author_id=r.author_id, author_name=author.name if author else None,
         author_avatar=author.avatar_url if author else None, author_type=r.author_type,
         body_md=r.body_md, status=r.status, citations=r.citations,
-        attachments=r.attachments or [],
+        attachments=r.attachments or [], review_reason=r.review_reason,
         like_count=r.like_count, created_at=r.created_at, is_liked=is_liked,
     )
 
@@ -75,8 +75,21 @@ async def create_post(body: PostIn, user: User = Depends(get_current_user), db: 
     cat = await db.get(Category, body.category_id)
     if not cat or cat.deleted_at is not None:
         raise HTTPException(status_code=404, detail="栏目不存在")
-    if not cat.allow_post:
-        raise HTTPException(status_code=403, detail="该栏目不允许发帖")
+
+    # 发帖权限三态：public=所有成员；staff_only=仅超管/栏目管理员；closed=任何人都不能发
+    perm = getattr(cat, "post_permission", "public") or "public"
+    if perm == "closed":
+        raise HTTPException(status_code=403, detail="该栏目已关闭发帖")
+    if perm == "staff_only" and user.role != "super_admin":
+        from app.models import CategoryHumanAdmin
+        is_cat_admin = await db.scalar(
+            select(CategoryHumanAdmin.id).where(
+                CategoryHumanAdmin.category_id == cat.id,
+                CategoryHumanAdmin.user_id == user.id,
+            )
+        )
+        if is_cat_admin is None:
+            raise HTTPException(status_code=403, detail="该栏目仅管理员可发帖")
 
     # 发帖进入「审核中」状态：不直接发布，异步 AI 审核通过后才公开
     post = Post(
@@ -91,7 +104,12 @@ async def create_post(body: PostIn, user: User = Depends(get_current_user), db: 
 
     # 异步 AI 审核（worker 执行；审核通过后再触发 AI 回复流水线，两次调用分开）
     from app.tasks.worker import enqueue
+    from app.services.ticket_service import grant as grant_ticket
 
+    try:
+        await grant_ticket(db, user.id, "post_create", "post", post.id)
+    except Exception:
+        pass
     try:
         await enqueue("review_post_task", post.id)
     except Exception:
@@ -159,6 +177,14 @@ async def get_post(
     post.view_count += 1
     await db.commit()
     await db.refresh(post)  # commit 后重新加载所有列，避免懒加载触发 MissingGreenlet
+    # 每日阅读奖励（每日 1 次，已登录用户）
+    if user:
+        from app.services.ticket_service import grant as grant_ticket
+        try:
+            await grant_ticket(db, user.id, "daily_read", "post", post_id)
+            await db.commit()
+        except Exception:
+            pass
     return await _post_to_out(db, post, user)
 
 
@@ -168,14 +194,26 @@ async def list_replies(
     user: User | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ):
-    rows = list(
-        await db.scalars(
-            select(Reply).where(
-                Reply.post_id == post_id, Reply.deleted_at.is_(None),
-                or_(Reply.status == "published", Reply.status == "pending_review"),
-            ).order_by(Reply.created_at.asc())
+    post = await db.get(Post, post_id)
+    if not post:
+        return []
+    # 可见性：published 所有人可见；pending_review（审核中）额外仅楼主本人或管理员可见
+    stmt = select(Reply).where(Reply.post_id == post_id, Reply.deleted_at.is_(None))
+    if user and (
+        user.id == post.author_id
+        or user.role == "super_admin"
+        or await db.scalar(
+            select(CategoryHumanAdmin.id).where(
+                CategoryHumanAdmin.category_id == post.category_id,
+                CategoryHumanAdmin.user_id == user.id,
+            )
         )
-    )
+        is not None
+    ):
+        stmt = stmt.where(Reply.status.in_(["published", "pending_review"]))
+    else:
+        stmt = stmt.where(Reply.status == "published")
+    rows = list(await db.scalars(stmt.order_by(Reply.created_at.asc())))
     return [await _reply_to_out(db, r, user) for r in rows]
 
 
@@ -206,19 +244,26 @@ async def create_reply(
     await db.commit()
     await db.refresh(reply)
 
-    # 回帖触发合规审查（worker 异步）
+    # 回帖触发合规审查（worker 异步）；注意 reply 类型需传 reply.id（流水线按 reply.id 取目标）
     from app.tasks.worker import enqueue
 
     try:
-        await enqueue("run_pipeline_task", post_id, "reply")
+        await enqueue("run_pipeline_task", reply.id, "reply")
     except Exception:
         from app.agent.runner import trigger_pipeline
 
-        await trigger_pipeline(db, post_id, "reply")
+        await trigger_pipeline(db, reply.id, "reply")
 
     # 通知楼主
     if post.author_id != user.id:
         await notify(db, post.author_id, "reply", f"{user.name} 回复了你的帖子", reply.body_md[:200], f"/post/{post_id}")
+
+    # 奖励：回帖
+    from app.services.ticket_service import grant as grant_ticket
+    try:
+        await grant_ticket(db, user.id, "reply_create", "reply", reply.id)
+    except Exception:
+        pass
     return await _reply_to_out(db, reply, user)
 
 
@@ -240,6 +285,15 @@ async def like_post(post_id: int, user: User = Depends(get_current_user), db: As
     db.add(AuditLog(actor_type="user", actor_id=user.id, action="like_post", target_type="post", target_id=post_id))
     post.like_count += 1
     await db.commit()
+
+    # 奖励：点赞人 + 被点赞作者
+    from app.services.ticket_service import grant as grant_ticket
+    try:
+        await grant_ticket(db, user.id, "like_given", "post", post_id)
+        if post.author_id != user.id:
+            await grant_ticket(db, post.author_id, "like_received", "post", post_id)
+    except Exception:
+        pass
     return {"like_count": post.like_count}
 
 
@@ -281,6 +335,14 @@ async def like_reply(reply_id: int, user: User = Depends(get_current_user), db: 
     db.add(AuditLog(actor_type="user", actor_id=user.id, action="like_reply", target_type="reply", target_id=reply_id))
     reply.like_count += 1
     await db.commit()
+
+    from app.services.ticket_service import grant as grant_ticket
+    try:
+        await grant_ticket(db, user.id, "like_given", "reply", reply_id)
+        if reply.author_id != user.id:
+            await grant_ticket(db, reply.author_id, "like_received", "reply", reply_id)
+    except Exception:
+        pass
     return {"like_count": reply.like_count}
 
 
