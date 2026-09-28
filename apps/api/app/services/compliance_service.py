@@ -41,6 +41,90 @@ async def get_review_prompt(db: AsyncSession) -> str:
     return DEFAULT_REVIEW_PROMPT
 
 
+DEFAULT_RELEVANCE_PROMPT = """你是社区栏目的主题相关性审核员。栏目有明确的主题定位，你需要判断用户内容是否与栏目主题相关，输出严格 JSON：
+{"relevant": true/false, "reason": "简要原因（50字内）"}
+
+判断标准：
+1. 内容与栏目主题直接相关、或属于该主题下的提问/讨论/求助/经验分享 → relevant=true。
+2. 内容与栏目主题完全无关（如跨领域闲聊、与栏目定位无关的灌水）→ relevant=false。
+3. 边界情况（沾边但主题偏移）→ relevant=false，reason 说明偏移在哪。
+4. 只依据栏目主题定位和给定内容判断，不要联想扩展。"""
+
+
+async def relevance_check(db: AsyncSession, category_name: str, category_desc: str | None, content: str, post_id: int | None, trace_id: str) -> dict:
+    """栏目主题相关性判断（内置 LLM）。返回 {"pass": bool, "reason": str}。"""
+    cfg = await get_default_llm_config(db)
+    system_prompt = DEFAULT_RELEVANCE_PROMPT
+    user_content = (
+        f"栏目主题：{category_name}\n栏目定位：{category_desc or '（无描述）'}\n\n"
+        f"待判断内容：\n{content[:3000]}"
+    )
+    start = time.time()
+    raw = ""
+    try:
+        raw = await chat_with_json(cfg, system_prompt, user_content, max_tokens=500)
+        result = json.loads(raw)
+        if not isinstance(result, dict) or "relevant" not in result:
+            raise ValueError("缺少 relevant 字段")
+    except Exception as exc:
+        # AI 异常/非法输出：保守策略按不相关处理，转人工复核
+        result = {"relevant": False, "reason": f"AI 相关性判断未返回有效结果（{type(exc).__name__}），转人工复核"}
+        raw = raw or f"<error:{type(exc).__name__}>"
+
+    passed = bool(result.get("relevant", False))
+    reason = str(result.get("reason", ""))[:200]
+    db.add(
+        AgentRun(
+            trace_id=trace_id, trigger_type="compliance", post_id=post_id,
+            node="relevance", prompt=system_prompt + "\n---\n" + user_content, response=raw,
+            latency_ms=int((time.time() - start) * 1000),
+            decision="pass" if passed else "reject", score=None,
+        )
+    )
+    await db.commit()
+    return {"pass": passed, "reason": reason}
+
+
+DEFAULT_QUESTION_PROMPT = """你是社区 AI 助手的决策器。请判断帖子作者的这条追加评论是否是「需要回复的提问」，输出严格 JSON：
+{"is_question": true/false, "reason": "简要原因（30字内）"}
+
+判定标准：
+1. 内容提出了具体问题、请求帮助、追问细节、寻求建议/方案 → is_question=true。
+2. 纯寒暄/致谢/表态（如“谢谢”“好的”“哦”“收到”“哈哈”“顶”“收藏了”等）或没有信息诉求的闲聊 → is_question=false。
+3. 不清楚是否提问时，倾向于 false（宁可不打扰）。
+只依据评论内容判断。"""
+
+
+async def is_question_check(db: AsyncSession, content: str, post_id: int | None, trace_id: str) -> dict:
+    """判断楼主评论是否提问（内置 LLM）。返回 {"is_question": bool, "reason": str}。"""
+    cfg = await get_default_llm_config(db)
+    system_prompt = DEFAULT_QUESTION_PROMPT
+    user_content = f"帖子作者的追加评论：\n{content[:1500]}"
+    start = time.time()
+    raw = ""
+    try:
+        raw = await chat_with_json(cfg, system_prompt, user_content, max_tokens=500)
+        result = json.loads(raw)
+        if not isinstance(result, dict) or "is_question" not in result:
+            raise ValueError("缺少 is_question 字段")
+    except Exception as exc:
+        result = {"is_question": False, "reason": f"判断异常（{type(exc).__name__}），按非提问处理"}
+        raw = raw or f"<error:{type(exc).__name__}>"
+
+    is_question = bool(result.get("is_question", False))
+    reason = str(result.get("reason", ""))[:100]
+    db.add(
+        AgentRun(
+            trace_id=trace_id, trigger_type="judge", post_id=post_id,
+            node="is_question", prompt=system_prompt + "\n---\n" + user_content, response=raw,
+            latency_ms=int((time.time() - start) * 1000),
+            decision="question" if is_question else "skip", score=None,
+        )
+    )
+    await db.commit()
+    return {"is_question": is_question, "reason": reason}
+
+
 async def compliance_check(
     db: AsyncSession,
     content: str,
