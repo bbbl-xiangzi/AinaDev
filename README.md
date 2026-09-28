@@ -84,6 +84,19 @@
 
 ---
 
+**安全设计（内置，客户部署默认启用）**
+
+- **限流防爆破**：登录/注册/发帖/回帖/搜索/上传均有 Redis 限流（含账号维度登录限制，暴力尝试触发 429）；防暴力破解与防刷 LLM 算力
+- **生产密钥强校验**：`APP_ENV=production` 时若 `JWT_SECRET` / `AES_KEY` / `MCP_API_KEY` 仍为默认值将**拒绝启动**，杜绝带弱密钥上线
+- **SSRF 防护**：知识库 URL 导入、资讯源抓取、原文/图片下载统一拦截私网/回环/云元数据地址（`.env` 设 `BLOCK_PRIVATE_URLS=false` 可放开，供确需抓内网源的场景）
+- **SQL 全参数化**：所有查询走 ORM / 参数绑定，无字符串拼接注入面
+- **密码安全**：bcrypt 哈希存储；改密需验证旧密码；JWT 访问令牌有效期默认 2h（改密后旧令牌最长 2h 内失效）
+- **上传安全**：扩展名白名单 + 真实文件头（魔数）校验 + 大小限制；附件文件名 uuid 化，无路径穿越
+- **知识库文档隔离**：文档存 `data/rag_docs` 独立目录，不挂 `/uploads` 静态目录，下载走后台鉴权接口，防内部资料公开
+- **权限收敛**：全部后台接口 `require_super_admin`（栏目管理员按栏目授权）；MCP 端点强制 Bearer 令牌；CORS 仅允许前端域名
+
+---
+
 ## 三、技术栈
 
 - **后端**：Python 3.12+ · FastAPI · SQLAlchemy 2 (async) · psycopg · LangGraph · fastmcp · ARQ · pydantic v2 · jieba（中文分词搜索）· weaviate-client
@@ -141,8 +154,9 @@ vim .env   # 按下方表格填写
 | `AES_KEY` | AES-256 密钥（32 字节 hex）：`openssl rand -hex 32`，用于加密模型 API Key | |
 | `MCP_API_KEY` | MCP 访问令牌（豆包工作配置时填 Bearer） | |
 | `ADMIN_EMAIL` / `ADMIN_PASSWORD` | 初始超管（首次启动自动创建；未配置时自动生成随机密码并打印到日志） | |
+| `APP_ENV` | 运行环境；**生产必须设为 `production`**（启用密钥强校验，弱密钥拒绝启动） | `production` |
 
-**可选项**：`SITE_NAME`、`SITE_DESCRIPTION`、`INVITE_EXPIRE_DAYS`、`SMTP_*`（邮件通知）、`DEFAULT_LLM_*`（默认模型，首次启动写入库，之后后台可改）、`VECTOR_BACKEND`（`numpy`/`pgvector`/`weaviate`，默认 `numpy`）、`WEAVIATE_HOST`/`WEAVIATE_HTTP_PORT`/`WEAVIATE_GRPC_PORT`/`WEAVIATE_COLLECTION`（使用 Weaviate 时填写）。
+**可选项**：`SITE_NAME`、`SITE_DESCRIPTION`、`INVITE_EXPIRE_DAYS`、`SMTP_*`（邮件通知）、`DEFAULT_LLM_*`（默认模型，首次启动写入库，之后后台可改）、`VECTOR_BACKEND`（`numpy`/`pgvector`/`weaviate`，默认 `numpy`）、`WEAVIATE_HOST`/`WEAVIATE_HTTP_PORT`/`WEAVIATE_GRPC_PORT`/`WEAVIATE_COLLECTION`（使用 Weaviate 时填写）、`BLOCK_PRIVATE_URLS`（SSRF 防护开关，默认 `true`；确需抓内网资讯/文档源时设 `false`）、`JWT_ACCESS_EXPIRE_MINUTES`（默认 120）、`JWT_REFRESH_EXPIRE_DAYS`（默认 7）。
 
 ### 第 3 步：启动
 
@@ -268,6 +282,8 @@ docker compose -f docker-compose.prod.yml up -d --build
 | 更换模型 | 后台「模型配置」新增/编辑并测试连接 → 设为默认 → 知识库「重建」索引 |
 | 使用 Weaviate 后检索为空 | 确认 `.env` 的 `VECTOR_BACKEND=weaviate` 与 Weaviate 地址/集合名正确；上传文档后状态 `ready`；旧文档需点「重建」写入向量 |
 | 修改 MCP 令牌 | 后台「设置」修改后，同步更新豆包工作中的配置 |
+| 登录/发帖返回 429 | 触发防滥用限流（登录：每 IP 每分钟 15 次、每账号 5 次；发帖每分钟 6 次）。稍等 1 分钟再试，并确认密码正确 |
+| 内网 RSS / 资讯源抓取失败 | SSRF 防护默认拦截内网地址；如确需抓取内网源，`.env` 设 `BLOCK_PRIVATE_URLS=false` 后 `docker compose -f docker-compose.prod.yml up -d` 生效 |
 
 ---
 
