@@ -9,11 +9,13 @@ class PipelineState(TypedDict):
     content_type: str  # post / reply
     category_id: int
     author_id: int
+    author_name: str | None = None
     title: str
     body: str
     trace_id: str
     # 合规
     compliance_result: dict  # {pass, reason, severity}
+    guardrail_done: bool = False  # 评论合规已在 trigger 层执行
     # 路由
     should_reply: bool
     ai_admin_id: int | None
