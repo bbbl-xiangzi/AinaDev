@@ -171,6 +171,7 @@ export default function MePage() {
           </div>
 
           <div className="mt-4 flex flex-col gap-2">
+            <button onClick={() => router.push(`/users/${user.id}`)} className="rounded-md border border-[#d0d7de] px-3 py-1.5 text-[13px] text-[#24292f] hover:bg-[#f3f4f6]">我的主页</button>
             <button onClick={openProfile} className="rounded-md border border-[#d0d7de] px-3 py-1.5 text-[13px] text-[#24292f] hover:bg-[#f3f4f6]">编辑资料</button>
             <button onClick={() => { setPassMsg(""); setOldPwd(""); setNewPwd(""); setNewPwd2(""); setPassOpen(true); }} className="rounded-md border border-[#d0d7de] px-3 py-1.5 text-[13px] text-[#24292f] hover:bg-[#f3f4f6]">修改密码</button>
           </div>
