@@ -47,11 +47,39 @@ class SsoConfig(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class EmployeeFieldDef(Base):
+    """员工扩展字段定义（元数据，可配置）。
+
+    字段集合由管理员维护：内置字段（builtin=True）只可停用/改名，不可删除；
+    自定义字段（target=custom）由管理员按客户需求新增，值存 EmployeeProfile.extras。
+    SSO 登录的 AI 抽取只按 enabled 的字段清单抽取，不会因 claims 而新增字段。
+    """
+
+    __tablename__ = "employee_field_defs"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    # 字段标识（内置固定：department/org_id/employee_no/...；自定义自动生成 custom_xx）
+    field_key: Mapped[str] = mapped_column(String(100), unique=True, index=True)
+    field_name: Mapped[str] = mapped_column(String(100))  # 中文名，如「成本中心」
+    # 值存储目标：user=users 表列（department/org_id）；employee=employee_profiles 固定列；custom=extras(JSONB)
+    target: Mapped[str] = mapped_column(String(20), default="employee", server_default="employee")
+    input_type: Mapped[str] = mapped_column(String(20), default="text", server_default="text")  # text / date / number
+    builtin: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+    user_editable: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")  # 是否允许用户本人编辑
+    # 确定性 claim 映射（逗号分隔候选，按顺序取首个非空）；为空则交给 LLM 按中文名抽取
+    claim_key: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    hint: Mapped[str | None] = mapped_column(String(200), nullable=True)  # 占位提示
+    sort_order: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class EmployeeProfile(Base):
     """员工扩展信息：users 的一对一扩展表。
 
     SSO 首登时由 claims 确定性映射 + LLM 抽取填充；用户可在「我的 - 编辑资料」自行修改。
     raw_claims 全量存档原始 claims，保证可追溯；sso_sub 用于 sub 绑定规则。
+    extras 存储管理员新增的自定义字段值。
     """
 
     __tablename__ = "employee_profiles"
@@ -73,6 +101,6 @@ class EmployeeProfile(Base):
     cost_center: Mapped[str | None] = mapped_column(String(100), nullable=True)    # 成本中心
     extras: Mapped[dict | None] = mapped_column(JSON, nullable=True)               # 其他自定义字段
     raw_claims: Mapped[dict | None] = mapped_column(JSON, nullable=True)            # 原始 claims 存档（可追溯）
-    source: Mapped[str] = mapped_column(String(20), default="sso", server_default="sso")  # sso / manual
+    source: Mapped[str] = mapped_column(String(20), default="sso", server_default="sso")  # sso / manual / admin
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

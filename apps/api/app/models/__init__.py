@@ -8,12 +8,12 @@ from app.models.interactions import Report, Subscription, Follow, Notification, 
 from app.models.system import ModelConfig, AiNewsSource, SiteConfig
 from app.models.tickets import TicketConfig, UserTicket, TicketTransaction
 from app.models.external import ExternalAgent
-from app.models.sso import SsoConfig, EmployeeProfile
+from app.models.sso import EmployeeFieldDef, EmployeeProfile, SsoConfig
 
 __all__ = [
     "User", "Invitation", "Category", "CategoryHumanAdmin", "CategoryAiAdmin",
     "Post", "Reply", "RagDocument", "RagChunk", "AgentRun", "KnowledgeHit",
     "Report", "Subscription", "Follow", "Notification", "AuditLog", "ModelConfig", "AiNewsSource", "SiteConfig",
     "TicketConfig", "UserTicket", "TicketTransaction", "ExternalAgent",
-    "SsoConfig", "EmployeeProfile",
+    "SsoConfig", "EmployeeProfile", "EmployeeFieldDef",
 ]
