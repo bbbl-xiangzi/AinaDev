@@ -92,6 +92,7 @@ class EmployeeFieldDefPatch(BaseModel):
 class EmployeeFieldDefOut(BaseModel):
     """员工字段定义（后台字段配置 + 个人中心动态渲染共用）。"""
     id: int
+    model_config = {"from_attributes": True}
     field_key: str
     field_name: str
     target: str  # user / employee / custom
