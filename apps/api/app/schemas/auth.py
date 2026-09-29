@@ -69,6 +69,39 @@ class ProfileUpdateIn(BaseModel):
     employee_type: str | None = Field(default=None, max_length=50)
     job_level: str | None = Field(default=None, max_length=50)
     cost_center: str | None = Field(default=None, max_length=100)
+    # 自定义字段值（key=字段定义 field_key，仅启用的自定义字段会被写入）
+    extras: dict | None = None
+
+
+class EmployeeFieldDefIn(BaseModel):
+    """新增自定义员工字段。"""
+    field_name: str = Field(min_length=1, max_length=100)
+    input_type: str = "text"  # text / date / number
+    hint: str | None = Field(default=None, max_length=200)
+
+
+class EmployeeFieldDefPatch(BaseModel):
+    field_name: str | None = Field(default=None, min_length=1, max_length=100)
+    input_type: str | None = None
+    enabled: bool | None = None
+    user_editable: bool | None = None
+    hint: str | None = Field(default=None, max_length=200)
+    sort_order: int | None = None
+
+
+class EmployeeFieldDefOut(BaseModel):
+    """员工字段定义（后台字段配置 + 个人中心动态渲染共用）。"""
+    id: int
+    field_key: str
+    field_name: str
+    target: str  # user / employee / custom
+    input_type: str
+    builtin: bool
+    enabled: bool
+    user_editable: bool
+    claim_key: str | None
+    hint: str | None
+    sort_order: int
 
 
 class EmployeeOut(BaseModel):

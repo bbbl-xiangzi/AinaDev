@@ -121,6 +121,11 @@ async def init_db_and_seed() -> None:
     async with SessionLocal() as db:
         await seed_default_tickets(db)
 
+    # 6) 员工扩展字段定义（内置 seed，可配置）
+    from app.services.employee_fields import ensure_seed_fields
+    async with SessionLocal() as db:
+        await ensure_seed_fields(db)
+
 
 # MCP Server（豆包工作等 MCP 客户端接入，URL: /mcp）
 mcp_app = mcp.http_app(path="/")
