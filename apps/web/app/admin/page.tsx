@@ -14,8 +14,9 @@ import { AuditPanel } from "@/components/admin/AuditPanel";
 import { SettingsPanel } from "@/components/admin/SettingsPanel";
 import { TicketPanel } from "@/components/admin/TicketPanel";
 import { ExternalAgentsPanel } from "@/components/admin/ExternalAgentsPanel";
+import { SsoPanel } from "@/components/admin/SsoPanel";
 
-type TabKey = "overview" | "reviews" | "news" | "users" | "categories" | "rag" | "models" | "external" | "audit" | "tickets" | "settings" | "other";
+type TabKey = "overview" | "reviews" | "news" | "users" | "categories" | "rag" | "models" | "external" | "audit" | "tickets" | "sso" | "settings" | "other";
 
 const MENU: { key: TabKey; label: string; icon: string }[] = [
   { key: "overview", label: "总览", icon: "📊" },
@@ -26,6 +27,7 @@ const MENU: { key: TabKey; label: string; icon: string }[] = [
   { key: "rag", label: "知识库", icon: "📚" },
   { key: "models", label: "模型配置", icon: "🤖" },
   { key: "external", label: "外部 Agent", icon: "🔗" },
+  { key: "sso", label: "SSO 登录", icon: "🔐" },
   { key: "audit", label: "审计", icon: "🔍" },
   { key: "tickets", label: "奖励设置", icon: "⭐" },
   { key: "settings", label: "设置", icon: "⚙️" },
@@ -41,6 +43,7 @@ const TAB_LABELS: Record<TabKey, string> = {
   rag: "知识库 RAG",
   models: "模型配置",
   external: "外部回帖源（第三方 Agent）",
+  sso: "企业统一身份登录（OIDC）",
   audit: "审计日志",
   tickets: "奖励（⭐ Ticket）配置",
   settings: "站点设置",
@@ -111,6 +114,7 @@ export default function AdminPage() {
           {tab === "rag" && <RagManager />}
           {tab === "models" && <ModelConfigPanel />}
           {tab === "external" && <ExternalAgentsPanel />}
+          {tab === "sso" && <SsoPanel />}
           {tab === "audit" && <AuditPanel />}
           {tab === "tickets" && <TicketPanel />}
           {tab === "settings" && <SettingsPanel />}

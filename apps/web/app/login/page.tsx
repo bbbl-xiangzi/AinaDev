@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth";
+import { http } from "@/lib/api";
 
 export default function LoginPage() {
   const { login, register } = useAuth();
@@ -14,6 +15,14 @@ export default function LoginPage() {
   const [invite, setInvite] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [sso, setSso] = useState<{ enabled: boolean; label: string }>({ enabled: false, label: "企业统一身份登录" });
+
+  useEffect(() => {
+    http
+      .get("/auth/sso/status")
+      .then((r: any) => setSso({ enabled: !!r.enabled, label: r.label || "企业统一身份登录" }))
+      .catch(() => {});
+  }, []);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -28,6 +37,10 @@ export default function LoginPage() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const ssoLogin = () => {
+    window.location.href = "/api/auth/sso/login";
   };
 
   return (
@@ -74,6 +87,21 @@ export default function LoginPage() {
             {loading ? "处理中…" : mode === "login" ? "登录" : "注册并登录"}
           </button>
         </form>
+        {sso.enabled && (
+          <div className="mt-4">
+            <div className="flex items-center gap-3 text-[12px] text-[#8c959f]">
+              <div className="h-px flex-1 bg-[#d0d7de]" />
+              <span>或</span>
+              <div className="h-px flex-1 bg-[#d0d7de]" />
+            </div>
+            <button
+              onClick={ssoLogin}
+              className="mt-4 w-full rounded-md border border-[#d0d7de] bg-white py-2 text-sm font-medium text-[#24292f] hover:border-[#0969da] hover:text-[#0969da]"
+            >
+              🔐 {sso.label}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

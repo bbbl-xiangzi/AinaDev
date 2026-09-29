@@ -17,6 +17,7 @@ export default function MePage() {
   const [notifs, setNotifs] = useState<any>({ items: [], unread: 0 });
   const [tickets, setTickets] = useState<any>({ balance: 0, total_earned: 0, items: [] });
   const [wallet, setWallet] = useState<{ balance: number; total_earned: number }>({ balance: 0, total_earned: 0 });
+  const [empInfo, setEmpInfo] = useState<{ department?: string; position?: string; employee_no?: string }>({});
   const fileRef = useRef<HTMLInputElement>(null);
 
   // 编辑资料
@@ -24,7 +25,9 @@ export default function MePage() {
   const [pfName, setPfName] = useState("");
   const [pfDept, setPfDept] = useState("");
   const [pfOrg, setPfOrg] = useState("");
+  const [pfEmp, setPfEmp] = useState<Record<string, string>>({}); // 员工扩展字段
   const [profileMsg, setProfileMsg] = useState("");
+  const [profileLoading, setProfileLoading] = useState(false);
   // 修改密码
   const [passOpen, setPassOpen] = useState(false);
   const [oldPwd, setOldPwd] = useState("");
@@ -32,18 +35,43 @@ export default function MePage() {
   const [newPwd2, setNewPwd2] = useState("");
   const [passMsg, setPassMsg] = useState("");
 
-  const openProfile = () => {
+  const openProfile = async () => {
     setPfName(user?.name || "");
     setPfDept(user?.department || "");
     setPfOrg(user?.org_id || "");
+    setPfEmp({});
     setProfileMsg("");
     setProfileOpen(true);
+    setProfileLoading(true);
+    try {
+      const ep: any = await http.get("/me/employee");
+      const pick: Record<string, string> = {};
+      [
+        "employee_no", "position", "org_path", "mobile", "gender", "birth_date",
+        "join_date", "manager", "location", "employee_type", "job_level", "cost_center",
+      ].forEach((k) => {
+        if (ep[k]) pick[k] = ep[k];
+      });
+      setPfEmp(pick);
+    } catch {
+      /* 员工扩展信息读取失败不阻塞 */
+    } finally {
+      setProfileLoading(false);
+    }
   };
 
   const saveProfile = async () => {
     setProfileMsg("");
     try {
-      const updated = await http.patch("/me/profile", { name: pfName, department: pfDept, org_id: pfOrg });
+      const updated = await http.patch("/me/profile", {
+        name: pfName, department: pfDept, org_id: pfOrg,
+        employee_no: pfEmp.employee_no || null, position: pfEmp.position || null,
+        org_path: pfEmp.org_path || null, mobile: pfEmp.mobile || null,
+        gender: pfEmp.gender || null, birth_date: pfEmp.birth_date || null,
+        join_date: pfEmp.join_date || null, manager: pfEmp.manager || null,
+        location: pfEmp.location || null, employee_type: pfEmp.employee_type || null,
+        job_level: pfEmp.job_level || null, cost_center: pfEmp.cost_center || null,
+      });
       refreshUser?.();
       setProfileMsg("✓ 已保存");
       setTimeout(() => setProfileOpen(false), 800);
@@ -97,6 +125,10 @@ export default function MePage() {
     http.get("/me/tickets?page_size=1").then((d: any) => {
       setWallet({ balance: d.balance || 0, total_earned: d.total_earned || 0 });
     }).catch(() => {});
+    // 员工扩展信息（部门/职位展示）
+    http.get("/me/employee").then((ep: any) => {
+      setEmpInfo({ department: ep.department || user?.department, position: ep.position || "", employee_no: ep.employee_no || "" });
+    }).catch(() => setEmpInfo({ department: user?.department }));
     loadTab(tab);
   }, [user, tab]);
 
@@ -124,6 +156,11 @@ export default function MePage() {
           </div>
           <div className="mt-3 text-[16px] font-semibold">{user.name}</div>
           <div className="text-[13px] text-[#656d76]">{user.email}</div>
+          {(empInfo.position || empInfo.department) && (
+            <div className="mt-1 text-[12px] text-[#656d76]">
+              {[empInfo.position, empInfo.department, empInfo.employee_no ? `工号 ${empInfo.employee_no}` : ""].filter(Boolean).join(" · ")}
+            </div>
+          )}
           <div className="mt-1 text-[12px] text-[#656d76]">{user.role === "super_admin" ? "超级管理员" : "成员"} · 加入于 {new Date(user.created_at).toLocaleDateString("zh-CN")}</div>
 
           {/* Ticket 余额卡片 */}
@@ -214,6 +251,61 @@ export default function MePage() {
             <div>
               <label className="mb-1 block text-[13px] font-medium text-[#24292f]">所属组织 / 单位</label>
               <input value={pfOrg} onChange={(e) => setPfOrg(e.target.value)} maxLength={100} placeholder="如：XX 集团" className="w-full rounded-md border border-[#d0d7de] px-3 py-2 text-[14px] outline-none focus:border-[#0969da]" />
+            </div>
+
+            {/* 员工扩展信息（SSO 同步 / AI 抽取后可自行修改） */}
+            <div className="border-t border-[#eaeef2] pt-3">
+              <div className="mb-2 text-[12px] font-medium text-[#656d76]">员工信息（企业身份同步 / AI 抽取，可自行修改）</div>
+              {profileLoading ? (
+                <div className="text-[12px] text-[#8c959f]">加载中…</div>
+              ) : (
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="mb-1 block text-[12px] text-[#656d76]">工号</label>
+                    <input value={pfEmp.employee_no || ""} onChange={(e) => setPfEmp({ ...pfEmp, employee_no: e.target.value })} maxLength={100} className="w-full rounded-md border border-[#d0d7de] px-2 py-1.5 text-[13px] outline-none focus:border-[#0969da]" />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-[12px] text-[#656d76]">职位</label>
+                    <input value={pfEmp.position || ""} onChange={(e) => setPfEmp({ ...pfEmp, position: e.target.value })} maxLength={100} className="w-full rounded-md border border-[#d0d7de] px-2 py-1.5 text-[13px] outline-none focus:border-[#0969da]" />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-[12px] text-[#656d76]">手机号</label>
+                    <input value={pfEmp.mobile || ""} onChange={(e) => setPfEmp({ ...pfEmp, mobile: e.target.value })} maxLength={50} className="w-full rounded-md border border-[#d0d7de] px-2 py-1.5 text-[13px] outline-none focus:border-[#0969da]" />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-[12px] text-[#656d76]">性别</label>
+                    <input value={pfEmp.gender || ""} onChange={(e) => setPfEmp({ ...pfEmp, gender: e.target.value })} maxLength={20} placeholder="男 / 女" className="w-full rounded-md border border-[#d0d7de] px-2 py-1.5 text-[13px] outline-none focus:border-[#0969da]" />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-[12px] text-[#656d76]">入职日期</label>
+                    <input value={pfEmp.join_date || ""} onChange={(e) => setPfEmp({ ...pfEmp, join_date: e.target.value })} maxLength={20} placeholder="2024-03-01" className="w-full rounded-md border border-[#d0d7de] px-2 py-1.5 text-[13px] outline-none focus:border-[#0969da]" />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-[12px] text-[#656d76]">直属上级</label>
+                    <input value={pfEmp.manager || ""} onChange={(e) => setPfEmp({ ...pfEmp, manager: e.target.value })} maxLength={100} className="w-full rounded-md border border-[#d0d7de] px-2 py-1.5 text-[13px] outline-none focus:border-[#0969da]" />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-[12px] text-[#656d76]">办公地点</label>
+                    <input value={pfEmp.location || ""} onChange={(e) => setPfEmp({ ...pfEmp, location: e.target.value })} maxLength={100} className="w-full rounded-md border border-[#d0d7de] px-2 py-1.5 text-[13px] outline-none focus:border-[#0969da]" />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-[12px] text-[#656d76]">员工类型</label>
+                    <input value={pfEmp.employee_type || ""} onChange={(e) => setPfEmp({ ...pfEmp, employee_type: e.target.value })} maxLength={50} placeholder="正式 / 实习 / 外包" className="w-full rounded-md border border-[#d0d7de] px-2 py-1.5 text-[13px] outline-none focus:border-[#0969da]" />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-[12px] text-[#656d76]">职级</label>
+                    <input value={pfEmp.job_level || ""} onChange={(e) => setPfEmp({ ...pfEmp, job_level: e.target.value })} maxLength={50} className="w-full rounded-md border border-[#d0d7de] px-2 py-1.5 text-[13px] outline-none focus:border-[#0969da]" />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-[12px] text-[#656d76]">成本中心</label>
+                    <input value={pfEmp.cost_center || ""} onChange={(e) => setPfEmp({ ...pfEmp, cost_center: e.target.value })} maxLength={100} className="w-full rounded-md border border-[#d0d7de] px-2 py-1.5 text-[13px] outline-none focus:border-[#0969da]" />
+                  </div>
+                  <div className="col-span-2">
+                    <label className="mb-1 block text-[12px] text-[#656d76]">组织架构路径</label>
+                    <input value={pfEmp.org_path || ""} onChange={(e) => setPfEmp({ ...pfEmp, org_path: e.target.value })} maxLength={500} placeholder="集团 / 事业部 / 部门" className="w-full rounded-md border border-[#d0d7de] px-2 py-1.5 text-[13px] outline-none focus:border-[#0969da]" />
+                  </div>
+                </div>
+              )}
             </div>
             {profileMsg && <div className={`text-[13px] ${profileMsg.startsWith("✓") ? "text-[#1a7f37]" : "text-[#cf222e]"}`}>{profileMsg}</div>}
             <div className="flex justify-end gap-2">

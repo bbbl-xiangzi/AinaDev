@@ -81,8 +81,7 @@ function UserInner() {
                 )}
               </div>
               <div className="mt-1 text-[13px] text-[#656d76]">
-                {profile.department ? `部门：${profile.department}` : "未填写部门"}
-                {profile.org_id ? ` · ${profile.org_id}` : ""}
+                {[profile.position, profile.department ? `部门：${profile.department}` : "未填写部门", profile.org_id].filter(Boolean).join(" · ")}
               </div>
               <div className="mt-1 text-[12px] text-[#656d76]">加入于 {new Date(profile.created_at).toLocaleDateString("zh-CN")}</div>
               <div className="mt-3 flex gap-6 text-[13px]">
