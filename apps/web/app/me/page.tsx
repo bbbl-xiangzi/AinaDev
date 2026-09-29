@@ -28,6 +28,7 @@ export default function MePage() {
   const [pfEmp, setPfEmp] = useState<Record<string, string>>({}); // 员工扩展字段
   const [profileMsg, setProfileMsg] = useState("");
   const [profileLoading, setProfileLoading] = useState(false);
+  const [fieldDefs, setFieldDefs] = useState<any[]>([]); // 启用的员工字段定义（动态渲染）
   // 修改密码
   const [passOpen, setPassOpen] = useState(false);
   const [oldPwd, setOldPwd] = useState("");
@@ -44,13 +45,17 @@ export default function MePage() {
     setProfileOpen(true);
     setProfileLoading(true);
     try {
-      const ep: any = await http.get("/me/employee");
+      const [defs, ep]: any[] = await Promise.all([
+        http.get("/me/employee-fields"),
+        http.get("/me/employee"),
+      ]);
+      setFieldDefs(defs || []);
       const pick: Record<string, string> = {};
-      [
-        "employee_no", "position", "org_path", "mobile", "gender", "birth_date",
-        "join_date", "manager", "location", "employee_type", "job_level", "cost_center",
-      ].forEach((k) => {
-        if (ep[k]) pick[k] = ep[k];
+      (defs || []).forEach((d: any) => {
+        if (d.target !== "user") {
+          const v = d.target === "custom" ? (ep?.extras || {})[d.field_key] : ep?.[d.field_key];
+          if (v) pick[d.field_key] = v;
+        }
       });
       setPfEmp(pick);
     } catch {
@@ -63,15 +68,16 @@ export default function MePage() {
   const saveProfile = async () => {
     setProfileMsg("");
     try {
-      const updated = await http.patch("/me/profile", {
-        name: pfName, department: pfDept, org_id: pfOrg,
-        employee_no: pfEmp.employee_no || null, position: pfEmp.position || null,
-        org_path: pfEmp.org_path || null, mobile: pfEmp.mobile || null,
-        gender: pfEmp.gender || null, birth_date: pfEmp.birth_date || null,
-        join_date: pfEmp.join_date || null, manager: pfEmp.manager || null,
-        location: pfEmp.location || null, employee_type: pfEmp.employee_type || null,
-        job_level: pfEmp.job_level || null, cost_center: pfEmp.cost_center || null,
+      const body: any = { name: pfName, department: pfDept, org_id: pfOrg };
+      const extras: any = {};
+      (fieldDefs || []).forEach((d: any) => {
+        if (!d.enabled || !d.user_editable || d.target === "user") return;
+        const v = pfEmp[d.field_key] ?? null;
+        if (d.target === "custom") extras[d.field_key] = v;
+        else body[d.field_key] = v;
       });
+      body.extras = extras;
+      const updated = await http.patch("/me/profile", body);
       refreshUser?.();
       setProfileMsg("✓ 已保存");
       setTimeout(() => setProfileOpen(false), 800);
@@ -237,107 +243,6 @@ export default function MePage() {
             </div>
           )}
         </div>
-
-        {/* 编辑资料弹窗 */}
-        <Modal open={profileOpen} title="编辑个人资料" width={460} onClose={() => setProfileOpen(false)}>
-          <div className="space-y-4">
-            <div>
-              <label className="mb-1 block text-[13px] font-medium text-[#24292f]">昵称</label>
-              <input value={pfName} onChange={(e) => setPfName(e.target.value)} maxLength={50} className="w-full rounded-md border border-[#d0d7de] px-3 py-2 text-[14px] outline-none focus:border-[#0969da]" />
-            </div>
-            <div>
-              <label className="mb-1 block text-[13px] font-medium text-[#24292f]">部门</label>
-              <input value={pfDept} onChange={(e) => setPfDept(e.target.value)} maxLength={100} placeholder="如：基础架构部" className="w-full rounded-md border border-[#d0d7de] px-3 py-2 text-[14px] outline-none focus:border-[#0969da]" />
-            </div>
-            <div>
-              <label className="mb-1 block text-[13px] font-medium text-[#24292f]">所属组织 / 单位</label>
-              <input value={pfOrg} onChange={(e) => setPfOrg(e.target.value)} maxLength={100} placeholder="如：XX 集团" className="w-full rounded-md border border-[#d0d7de] px-3 py-2 text-[14px] outline-none focus:border-[#0969da]" />
-            </div>
-
-            {/* 员工扩展信息（SSO 同步 / AI 抽取后可自行修改） */}
-            <div className="border-t border-[#eaeef2] pt-3">
-              <div className="mb-2 text-[12px] font-medium text-[#656d76]">员工信息（企业身份同步 / AI 抽取，可自行修改）</div>
-              {profileLoading ? (
-                <div className="text-[12px] text-[#8c959f]">加载中…</div>
-              ) : (
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="mb-1 block text-[12px] text-[#656d76]">工号</label>
-                    <input value={pfEmp.employee_no || ""} onChange={(e) => setPfEmp({ ...pfEmp, employee_no: e.target.value })} maxLength={100} className="w-full rounded-md border border-[#d0d7de] px-2 py-1.5 text-[13px] outline-none focus:border-[#0969da]" />
-                  </div>
-                  <div>
-                    <label className="mb-1 block text-[12px] text-[#656d76]">职位</label>
-                    <input value={pfEmp.position || ""} onChange={(e) => setPfEmp({ ...pfEmp, position: e.target.value })} maxLength={100} className="w-full rounded-md border border-[#d0d7de] px-2 py-1.5 text-[13px] outline-none focus:border-[#0969da]" />
-                  </div>
-                  <div>
-                    <label className="mb-1 block text-[12px] text-[#656d76]">手机号</label>
-                    <input value={pfEmp.mobile || ""} onChange={(e) => setPfEmp({ ...pfEmp, mobile: e.target.value })} maxLength={50} className="w-full rounded-md border border-[#d0d7de] px-2 py-1.5 text-[13px] outline-none focus:border-[#0969da]" />
-                  </div>
-                  <div>
-                    <label className="mb-1 block text-[12px] text-[#656d76]">性别</label>
-                    <input value={pfEmp.gender || ""} onChange={(e) => setPfEmp({ ...pfEmp, gender: e.target.value })} maxLength={20} placeholder="男 / 女" className="w-full rounded-md border border-[#d0d7de] px-2 py-1.5 text-[13px] outline-none focus:border-[#0969da]" />
-                  </div>
-                  <div>
-                    <label className="mb-1 block text-[12px] text-[#656d76]">入职日期</label>
-                    <input value={pfEmp.join_date || ""} onChange={(e) => setPfEmp({ ...pfEmp, join_date: e.target.value })} maxLength={20} placeholder="2024-03-01" className="w-full rounded-md border border-[#d0d7de] px-2 py-1.5 text-[13px] outline-none focus:border-[#0969da]" />
-                  </div>
-                  <div>
-                    <label className="mb-1 block text-[12px] text-[#656d76]">直属上级</label>
-                    <input value={pfEmp.manager || ""} onChange={(e) => setPfEmp({ ...pfEmp, manager: e.target.value })} maxLength={100} className="w-full rounded-md border border-[#d0d7de] px-2 py-1.5 text-[13px] outline-none focus:border-[#0969da]" />
-                  </div>
-                  <div>
-                    <label className="mb-1 block text-[12px] text-[#656d76]">办公地点</label>
-                    <input value={pfEmp.location || ""} onChange={(e) => setPfEmp({ ...pfEmp, location: e.target.value })} maxLength={100} className="w-full rounded-md border border-[#d0d7de] px-2 py-1.5 text-[13px] outline-none focus:border-[#0969da]" />
-                  </div>
-                  <div>
-                    <label className="mb-1 block text-[12px] text-[#656d76]">员工类型</label>
-                    <input value={pfEmp.employee_type || ""} onChange={(e) => setPfEmp({ ...pfEmp, employee_type: e.target.value })} maxLength={50} placeholder="正式 / 实习 / 外包" className="w-full rounded-md border border-[#d0d7de] px-2 py-1.5 text-[13px] outline-none focus:border-[#0969da]" />
-                  </div>
-                  <div>
-                    <label className="mb-1 block text-[12px] text-[#656d76]">职级</label>
-                    <input value={pfEmp.job_level || ""} onChange={(e) => setPfEmp({ ...pfEmp, job_level: e.target.value })} maxLength={50} className="w-full rounded-md border border-[#d0d7de] px-2 py-1.5 text-[13px] outline-none focus:border-[#0969da]" />
-                  </div>
-                  <div>
-                    <label className="mb-1 block text-[12px] text-[#656d76]">成本中心</label>
-                    <input value={pfEmp.cost_center || ""} onChange={(e) => setPfEmp({ ...pfEmp, cost_center: e.target.value })} maxLength={100} className="w-full rounded-md border border-[#d0d7de] px-2 py-1.5 text-[13px] outline-none focus:border-[#0969da]" />
-                  </div>
-                  <div className="col-span-2">
-                    <label className="mb-1 block text-[12px] text-[#656d76]">组织架构路径</label>
-                    <input value={pfEmp.org_path || ""} onChange={(e) => setPfEmp({ ...pfEmp, org_path: e.target.value })} maxLength={500} placeholder="集团 / 事业部 / 部门" className="w-full rounded-md border border-[#d0d7de] px-2 py-1.5 text-[13px] outline-none focus:border-[#0969da]" />
-                  </div>
-                </div>
-              )}
-            </div>
-            {profileMsg && <div className={`text-[13px] ${profileMsg.startsWith("✓") ? "text-[#1a7f37]" : "text-[#cf222e]"}`}>{profileMsg}</div>}
-            <div className="flex justify-end gap-2">
-              <button onClick={() => setProfileOpen(false)} className="rounded-md border border-[#d0d7de] px-4 py-1.5 text-[13px] text-[#656d76] hover:bg-[#f3f4f6]">取消</button>
-              <button onClick={saveProfile} className="rounded-md bg-[#0969da] px-4 py-1.5 text-[13px] font-medium text-white hover:bg-[#0550ae]">保存</button>
-            </div>
-          </div>
-        </Modal>
-
-        {/* 修改密码弹窗 */}
-        <Modal open={passOpen} title="修改密码" width={420} onClose={() => setPassOpen(false)}>
-          <div className="space-y-4">
-            <div>
-              <label className="mb-1 block text-[13px] font-medium text-[#24292f]">当前密码</label>
-              <input type="password" value={oldPwd} onChange={(e) => setOldPwd(e.target.value)} className="w-full rounded-md border border-[#d0d7de] px-3 py-2 text-[14px] outline-none focus:border-[#0969da]" />
-            </div>
-            <div>
-              <label className="mb-1 block text-[13px] font-medium text-[#24292f]">新密码</label>
-              <input type="password" value={newPwd} onChange={(e) => setNewPwd(e.target.value)} className="w-full rounded-md border border-[#d0d7de] px-3 py-2 text-[14px] outline-none focus:border-[#0969da]" />
-            </div>
-            <div>
-              <label className="mb-1 block text-[13px] font-medium text-[#24292f]">确认新密码</label>
-              <input type="password" value={newPwd2} onChange={(e) => setNewPwd2(e.target.value)} className="w-full rounded-md border border-[#d0d7de] px-3 py-2 text-[14px] outline-none focus:border-[#0969da]" />
-            </div>
-            {passMsg && <div className={`text-[13px] ${passMsg.startsWith("✓") ? "text-[#1a7f37]" : "text-[#cf222e]"}`}>{passMsg}</div>}
-            <div className="flex justify-end gap-2">
-              <button onClick={() => setPassOpen(false)} className="rounded-md border border-[#d0d7de] px-4 py-1.5 text-[13px] text-[#656d76] hover:bg-[#f3f4f6]">取消</button>
-              <button onClick={savePassword} className="rounded-md bg-[#0969da] px-4 py-1.5 text-[13px] font-medium text-white hover:bg-[#0550ae]">确认修改</button>
-            </div>
-          </div>
-        </Modal>
       </main>
     </div>
   );
