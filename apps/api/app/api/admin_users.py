@@ -1,108 +1,238 @@
-"""管理：用户 + 邀请码 + 员工扩展信息。"""
-from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import func, or_, select
+"""管理后台：用户管理、邀请码、员工扩展信息、员工字段定义配置。"""
+from typing import Any
+
+from fastapi import APIRouter, Body, Depends, HTTPException
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_db
 from app.core.deps import require_super_admin
-from app.models import EmployeeProfile, Invitation, User
-from app.schemas import EmployeeOut, InviteCreate, InviteOut, ProfileUpdateIn, UserAdminUpdate, UserOut
-from app.services.audit_service import audit
-from app.services.auth_service import create_invite
+from app.models import EmployeeFieldDef, EmployeeProfile, Invitation, User
+from app.schemas import (
+    EmployeeFieldDefIn, EmployeeFieldDefOut, EmployeeFieldDefPatch,
+    InviteCreate, InviteOut, PublicUserOut, UserAdminUpdate, UserOut,
+)
 
-router = APIRouter(prefix="/api/admin", tags=["admin-users"])
+router = APIRouter(prefix="/api/admin", tags=["admin"])
 
 
-@router.get("/users", response_model=dict)
+def _user_to_out(u: User, ep: EmployeeProfile | None) -> dict[str, Any]:
+    d = UserOut.model_validate(u).model_dump()
+    d["employee"] = {"position": ep.position if ep else None}
+    return d
+
+
+@router.get("/users")
 async def list_users(
-    q: str | None = None,
-    page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
-    admin: User = Depends(require_super_admin),
-    db: AsyncSession = Depends(get_db),
+    q: str = "", page: int = 1, page_size: int = 20,
+    admin: User = Depends(require_super_admin), db: AsyncSession = Depends(get_db),
 ):
-    stmt = select(User).where(User.deleted_at.is_(None), User.account_type == "human")
+    stmt = select(User).where(User.deleted_at.is_(None))
     if q:
-        stmt = stmt.where(or_(User.name.ilike(f"%{q}%"), User.email.ilike(f"%{q}%")))
-    stmt = stmt.order_by(User.created_at.desc())
-    total = await db.scalar(select(func.count()).select_from(stmt.subquery()))
-    rows = list(await db.scalars(stmt.offset((page - 1) * page_size).limit(page_size)))
-    # 批量附加员工扩展摘要（工号 / 职位），供后台列表展示
-    emp_map: dict[int, dict] = {}
-    if rows:
-        emp_stmt = select(EmployeeProfile.user_id, EmployeeProfile.employee_no, EmployeeProfile.position).where(
-            EmployeeProfile.user_id.in_([u.id for u in rows])
-        )
-        for r in await db.execute(emp_stmt):
-            emp_map[r.user_id] = {"employee_no": r.employee_no, "position": r.position}
-    items = []
+        like = f"%{q.strip()}%"
+        stmt = stmt.where((User.name.ilike(like)) | (User.email.ilike(like)))
+    total = await db.scalar(select(func_count()).select_from(stmt.subquery()))
+    rows = list(await db.scalars(stmt.order_by(User.id.asc()).offset((page - 1) * page_size).limit(page_size)))
+    items: list[dict[str, Any]] = []
     for u in rows:
-        d = UserOut.model_validate(u).model_dump()
-        d["employee"] = emp_map.get(u.id, {})
-        items.append(d)
+        ep = await db.scalar(select(EmployeeProfile).where(EmployeeProfile.user_id == u.id))
+        items.append(_user_to_out(u, ep))
     return {"total": total or 0, "items": items}
 
 
-@router.put("/users/{user_id}", response_model=UserOut)
-async def update_user(user_id: int, body: UserAdminUpdate, admin: User = Depends(require_super_admin), db: AsyncSession = Depends(get_db)):
-    user = await db.get(User, user_id)
-    if not user:
+def func_count():
+    from sqlalchemy import func
+
+    return func.count()
+
+
+@router.put("/users/{user_id}")
+async def update_user(
+    user_id: int, body: UserAdminUpdate,
+    admin: User = Depends(require_super_admin), db: AsyncSession = Depends(get_db),
+):
+    u = await db.get(User, user_id)
+    if not u or u.deleted_at is not None:
         raise HTTPException(status_code=404, detail="用户不存在")
-    if user.id == admin.id and body.status == "disabled":
-        raise HTTPException(status_code=400, detail="不能禁用自己")
-    for k, v in body.model_dump(exclude_unset=True).items():
-        setattr(user, k, v)
+    if u.id == admin.id and body.role and body.role != "super_admin":
+        raise HTTPException(status_code=400, detail="不能取消自己的管理员角色")
+    if body.name is not None:
+        u.name = body.name.strip()[:50] or u.name
+    if body.role is not None and body.role in {"member", "super_admin"}:
+        u.role = body.role
+    if body.status is not None and body.status in {"active", "disabled"}:
+        u.status = body.status
     await db.commit()
-    await audit(db, "user", admin.id, "user_update", "user", user_id, body.model_dump(exclude_unset=True))
-    return UserOut.model_validate(user)
+    return UserOut.model_validate(u)
 
 
-@router.get("/users/{user_id}/employee", response_model=EmployeeOut)
+# ---------- 邀请码 ----------
+@router.post("/invitations", response_model=InviteOut)
+async def create_invitation(
+    body: InviteCreate,
+    admin: User = Depends(require_super_admin), db: AsyncSession = Depends(get_db),
+):
+    import secrets
+    from datetime import timedelta
+
+    code = secrets.token_urlsafe(10)
+    inv = Invitation(
+        code=code,
+        email=(body.email or "").strip().lower() or None,
+        note=body.note,
+        expires_at=_utcnow() + timedelta(days=7),
+        status="active",
+    )
+    db.add(inv)
+    await db.commit()
+    await db.refresh(inv)
+    return inv
+
+
+@router.get("/invitations")
+async def list_invitations(admin: User = Depends(require_super_admin), db: AsyncSession = Depends(get_db)):
+    from datetime import datetime, timezone
+
+    rows = list(await db.scalars(select(Invitation).order_by(Invitation.created_at.desc()).limit(100)))
+    now = datetime.now(timezone.utc)
+    return [
+        {
+            "id": i.id, "code": i.code, "email": i.email, "used_by": i.used_by, "used_at": i.used_at,
+            "expires_at": i.expires_at, "status": ("expired" if i.expires_at < now else i.status), "created_at": i.created_at,
+        }
+        for i in rows
+    ]
+
+
+@router.delete("/invitations/{inv_id}")
+async def revoke_invitation(inv_id: int, admin: User = Depends(require_super_admin), db: AsyncSession = Depends(get_db)):
+    inv = await db.get(Invitation, inv_id)
+    if not inv:
+        raise HTTPException(status_code=404, detail="邀请码不存在")
+    inv.status = "revoked"
+    await db.commit()
+    return {"ok": True}
+
+
+# ---------- 员工扩展信息（管理员维护，按字段定义动态读写） ----------
+@router.get("/users/{user_id}/employee")
 async def get_user_employee(user_id: int, admin: User = Depends(require_super_admin), db: AsyncSession = Depends(get_db)):
-    """查看某用户的员工扩展信息（含 SSO 来源与原始 claims 可追溯）。"""
+    u = await db.get(User, user_id)
+    if not u:
+        raise HTTPException(status_code=404, detail="用户不存在")
     ep = await db.scalar(select(EmployeeProfile).where(EmployeeProfile.user_id == user_id))
     if not ep:
-        return EmployeeOut()
-    return EmployeeOut(
-        sso_sub=ep.sso_sub, employee_no=ep.employee_no, position=ep.position, org_path=ep.org_path,
-        mobile=ep.mobile, gender=ep.gender, birth_date=ep.birth_date, join_date=ep.join_date,
-        manager=ep.manager, location=ep.location, employee_type=ep.employee_type,
-        job_level=ep.job_level, cost_center=ep.cost_center, extras=ep.extras,
-        raw_claims=ep.raw_claims, source=ep.source,
-    )
-
-
-@router.put("/users/{user_id}/employee", response_model=dict)
-async def update_user_employee(user_id: int, body: ProfileUpdateIn, admin: User = Depends(require_super_admin), db: AsyncSession = Depends(get_db)):
-    """管理员维护某用户的部门/组织与员工扩展信息（SSO 抽取后可人工修正）。"""
-    user = await db.get(User, user_id)
-    if not user:
-        raise HTTPException(status_code=404, detail="用户不存在")
-    if body.department is not None:
-        user.department = body.department.strip() or None
-    if body.org_id is not None:
-        user.org_id = body.org_id.strip() or None
-    employee_fields = {
-        "employee_no": body.employee_no, "position": body.position, "org_path": body.org_path,
-        "mobile": body.mobile, "gender": body.gender, "birth_date": body.birth_date,
-        "join_date": body.join_date, "manager": body.manager, "location": body.location,
-        "employee_type": body.employee_type, "job_level": body.job_level, "cost_center": body.cost_center,
+        return {}
+    return {
+        "sso_sub": ep.sso_sub, "employee_no": ep.employee_no, "position": ep.position, "org_path": ep.org_path,
+        "mobile": ep.mobile, "gender": ep.gender, "birth_date": ep.birth_date, "join_date": ep.join_date,
+        "manager": ep.manager, "location": ep.location, "employee_type": ep.employee_type,
+        "job_level": ep.job_level, "cost_center": ep.cost_center, "extras": ep.extras,
+        "raw_claims": ep.raw_claims, "source": ep.source,
     }
-    changed = {}
-    if any(v is not None for v in employee_fields.values()):
-        ep = await db.scalar(select(EmployeeProfile).where(EmployeeProfile.user_id == user_id))
-        if ep is None:
-            ep = EmployeeProfile(user_id=user_id)
-            db.add(ep)
-        for field, val in employee_fields.items():
-            if val is not None:
-                v = val.strip() or None
-                if getattr(ep, field) != v:
-                    setattr(ep, field, v)
-                    changed[field] = v
-        if ep.source != "admin":
-            ep.source = "admin"
-        changed["source"] = "admin"
+
+
+@router.put("/users/{user_id}/employee")
+async def update_user_employee(
+    user_id: int, body: dict[str, Any] = Body(default={}),
+    admin: User = Depends(require_super_admin), db: AsyncSession = Depends(get_db),
+):
+    """管理员维护员工扩展信息（动态字段：user 列 / employee 列 / extras 自定义字段）。"""
+    from app.services.employee_fields import apply_field_values, list_field_defs
+
+    u = await db.get(User, user_id)
+    if not u:
+        raise HTTPException(status_code=404, detail="用户不存在")
+    ep = await db.scalar(select(EmployeeProfile).where(EmployeeProfile.user_id == user_id))
+    if ep is None:
+        ep = EmployeeProfile(user_id=user_id)
+        db.add(ep)
+    defs = await list_field_defs(db, enabled_only=True)
+    changed = apply_field_values(u, ep, defs, body)
+    ep.source = "admin"
     await db.commit()
-    await audit(db, "user", admin.id, "employee_update", "user", user_id, changed)
-    return {"ok": True, "changed": changed}
+    from app.models import AuditLog
+
+    db.add(AuditLog(actor_type="user", actor_id=admin.id, action="employee_update", target_type="user", target_id=user_id, detail={"changed": list(changed.keys())}))
+    await db.commit()
+    return {"ok": True, "changed": list(changed.keys())}
+
+
+# ---------- 员工字段定义（可配置元数据） ----------
+@router.get("/employee-fields", response_model=list[EmployeeFieldDefOut])
+async def list_employee_fields(admin: User = Depends(require_super_admin), db: AsyncSession = Depends(get_db)):
+    from app.services.employee_fields import ensure_seed_fields, list_field_defs
+
+    await ensure_seed_fields(db)
+    defs = await list_field_defs(db, enabled_only=False)
+    return [EmployeeFieldDefOut.model_validate(d) for d in defs]
+
+
+@router.post("/employee-fields", response_model=EmployeeFieldDefOut)
+async def create_employee_field(
+    body: EmployeeFieldDefIn,
+    admin: User = Depends(require_super_admin), db: AsyncSession = Depends(get_db),
+):
+    from app.services.employee_fields import ensure_seed_fields
+
+    await ensure_seed_fields(db)
+    max_id = await db.scalar(select(EmployeeFieldDef.id).order_by(EmployeeFieldDef.id.desc()).limit(1))
+    idx = (max_id or 0) + 1
+    d = EmployeeFieldDef(
+        field_key=f"custom_{idx}",
+        field_name=body.field_name.strip(),
+        target="custom",
+        input_type=body.input_type or "text",
+        builtin=False,
+        enabled=True,
+        user_editable=True,
+        hint=body.hint,
+        sort_order=999 + idx,
+    )
+    db.add(d)
+    await db.commit()
+    await db.refresh(d)
+    return EmployeeFieldDefOut.model_validate(d)
+
+
+@router.put("/employee-fields/{field_id}", response_model=EmployeeFieldDefOut)
+async def update_employee_field(
+    field_id: int, body: EmployeeFieldDefPatch,
+    admin: User = Depends(require_super_admin), db: AsyncSession = Depends(get_db),
+):
+    d = await db.get(EmployeeFieldDef, field_id)
+    if not d:
+        raise HTTPException(status_code=404, detail="字段不存在")
+    if body.field_name is not None:
+        d.field_name = body.field_name.strip()
+    if body.input_type is not None:
+        d.input_type = body.input_type
+    if body.enabled is not None:
+        d.enabled = body.enabled
+    if body.user_editable is not None:
+        d.user_editable = body.user_editable
+    if body.hint is not None:
+        d.hint = body.hint.strip() or None
+    if body.sort_order is not None:
+        d.sort_order = body.sort_order
+    await db.commit()
+    await db.refresh(d)
+    return EmployeeFieldDefOut.model_validate(d)
+
+
+@router.delete("/employee-fields/{field_id}")
+async def delete_employee_field(field_id: int, admin: User = Depends(require_super_admin), db: AsyncSession = Depends(get_db)):
+    d = await db.get(EmployeeFieldDef, field_id)
+    if not d:
+        raise HTTPException(status_code=404, detail="字段不存在")
+    if d.builtin:
+        raise HTTPException(status_code=400, detail="内置字段不可删除，可停用")
+    await db.delete(d)
+    await db.commit()
+    return {"ok": True}
+
+
+def _utcnow():
+    from datetime import datetime, timezone
+
+    return datetime.now(timezone.utc)

@@ -11,7 +11,7 @@ from app.config import settings
 from app.core.db import get_db
 from app.core.deps import get_current_user
 from app.models import EmployeeProfile, Notification, Post, Reply, Subscription, User
-from app.schemas import EmployeeOut, PostListOut, PostOut, ProfileUpdateIn, ReplyOut, UserOut
+from app.schemas import EmployeeFieldDefOut, EmployeeOut, PostListOut, PostOut, ProfileUpdateIn, ReplyOut, UserOut
 
 router = APIRouter(prefix="/api/me", tags=["me"])
 
@@ -168,35 +168,36 @@ async def update_profile(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """编辑个人资料：昵称 / 部门 / 所属组织 + 员工扩展信息。"""
+    """编辑个人资料：昵称 / 部门 / 所属组织 + 员工扩展信息（按启用的字段定义动态渲染）。"""
     if body.name is not None:
         if not body.name.strip():
             raise HTTPException(status_code=400, detail="昵称不能为空")
         user.name = body.name.strip()
-    if body.department is not None:
-        user.department = body.department.strip() or None
-    if body.org_id is not None:
-        user.org_id = body.org_id.strip() or None
 
-    # 员工扩展信息（SSO 抽取后亦可自行修改）
-    employee_fields = {
-        "employee_no": body.employee_no, "position": body.position, "org_path": body.org_path,
-        "mobile": body.mobile, "gender": body.gender, "birth_date": body.birth_date,
-        "join_date": body.join_date, "manager": body.manager, "location": body.location,
-        "employee_type": body.employee_type, "job_level": body.job_level, "cost_center": body.cost_center,
-    }
-    if any(v is not None for v in employee_fields.values()):
-        ep = await db.scalar(select(EmployeeProfile).where(EmployeeProfile.user_id == user.id))
-        if ep is None:
-            ep = EmployeeProfile(user_id=user.id)
-            db.add(ep)
-        for field, val in employee_fields.items():
-            if val is not None:
-                setattr(ep, field, val.strip() or None)
-        ep.source = ep.source or "manual"
+    from app.services.employee_fields import apply_field_values, list_field_defs
+
+    defs = await list_field_defs(db, enabled_only=True)
+    # 用户本人只能编辑 user_editable 的字段
+    editable_defs = [d for d in defs if d.user_editable]
+    ep = await db.scalar(select(EmployeeProfile).where(EmployeeProfile.user_id == user.id))
+    if ep is None:
+        ep = EmployeeProfile(user_id=user.id)
+        db.add(ep)
+    values = body.model_dump(exclude_unset=True)
+    apply_field_values(user, ep, editable_defs, values)
+    ep.source = ep.source or "manual"
 
     await db.commit()
     return UserOut.model_validate(user)
+
+
+@router.get("/employee-fields", response_model=list[EmployeeFieldDefOut])
+async def my_employee_fields(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """启用的员工字段定义（个人中心按此动态渲染编辑表单）。"""
+    from app.services.employee_fields import list_field_defs
+
+    defs = await list_field_defs(db, enabled_only=True)
+    return [EmployeeFieldDefOut.model_validate(d) for d in defs]
 
 
 @router.get("/employee", response_model=EmployeeOut)
