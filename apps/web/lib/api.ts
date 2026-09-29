@@ -74,6 +74,7 @@ export const http = {
   post: <T = any>(path: string, body?: any) =>
     api<T>(path, { method: "POST", body: body !== undefined ? JSON.stringify(body) : undefined }),
   put: <T = any>(path: string, body?: any) => api<T>(path, { method: "PUT", body: JSON.stringify(body) }),
+  patch: <T = any>(path: string, body?: any) => api<T>(path, { method: "PATCH", body: JSON.stringify(body) }),
   del: <T = any>(path: string) => api<T>(path, { method: "DELETE" }),
   upload: <T = any>(path: string, formData: FormData) => {
     const headers: Record<string, string> = {};

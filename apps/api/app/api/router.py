@@ -15,7 +15,8 @@ from app.api.categories import router as categories
 from app.api.me import router as me
 from app.api.posts import router as posts
 from app.api.uploads import router as uploads
+from app.api.users import router as users
 
 api_router = APIRouter()
-for r in [auth, categories, posts, me, uploads, admin_categories, admin_external_agents, admin_models, admin_rag, admin_news, admin_reviews, admin_users, admin_system, admin_tickets]:
+for r in [auth, categories, posts, me, users, uploads, admin_categories, admin_external_agents, admin_models, admin_rag, admin_news, admin_reviews, admin_users, admin_system, admin_tickets]:
     api_router.include_router(r)

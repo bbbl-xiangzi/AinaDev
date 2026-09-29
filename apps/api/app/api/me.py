@@ -1,12 +1,17 @@
 """个人中心 + 通知 API。"""
-from fastapi import APIRouter, Depends
+import uuid
+from datetime import datetime, timezone
+from pathlib import Path
+
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.core.db import get_db
 from app.core.deps import get_current_user
 from app.models import Notification, Post, Reply, Subscription, User
-from app.schemas import PostListOut, PostOut, ReplyOut
+from app.schemas import PostListOut, PostOut, ProfileUpdateIn, ReplyOut, UserOut
 
 router = APIRouter(prefix="/api/me", tags=["me"])
 
@@ -99,3 +104,78 @@ async def read_all(user: User = Depends(get_current_user), db: AsyncSession = De
     await db.execute(update(Notification).where(Notification.user_id == user.id).values(is_read=True))
     await db.commit()
     return {"ok": True}
+
+
+@router.get("/tickets")
+async def my_tickets(
+    page: int = 1, page_size: int = 30,
+    user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db),
+):
+    from app.models import TicketTransaction, UserTicket
+    from app.services.ticket_service import get_or_create_wallet
+
+    wallet = await get_or_create_wallet(db, user.id)
+    total = await db.scalar(
+        select(func.count(TicketTransaction.id)).where(TicketTransaction.user_id == user.id)
+    ) or 0
+    rows = list(await db.scalars(
+        select(TicketTransaction)
+        .where(TicketTransaction.user_id == user.id)
+        .order_by(TicketTransaction.created_at.desc())
+        .offset((page - 1) * page_size).limit(page_size)
+    ))
+    items = [
+        {
+            "id": r.id, "amount": float(r.amount), "action_key": r.action_key,
+            "note": r.note, "ref_type": r.ref_type, "ref_id": r.ref_id,
+            "created_at": r.created_at.isoformat(),
+        }
+        for r in rows
+    ]
+    return {
+        "balance": float(wallet.balance),
+        "total_earned": float(wallet.total_earned),
+        "total": total, "items": items,
+    }
+
+
+@router.post("/avatar")
+async def upload_avatar(
+    file: UploadFile = File(...),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    ext = (file.filename or "").rsplit(".", 1)[-1].lower() if "." in (file.filename or "") else ""
+    if ext not in {"png", "jpg", "jpeg", "gif", "webp"}:
+        raise HTTPException(status_code=400, detail="仅支持 png/jpg/jpeg/gif/webp 图片")
+    content = await file.read()
+    if len(content) > 2 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="头像不能超过 2MB")
+    now = datetime.now(timezone.utc)
+    rel_dir = Path(f"avatar/{now:%Y%m}")
+    abs_dir = Path(settings.upload_dir).resolve() / rel_dir
+    abs_dir.mkdir(parents=True, exist_ok=True)
+    stored = f"{uuid.uuid4().hex}.{ext}"
+    (abs_dir / stored).write_bytes(content)
+    user.avatar_url = f"/uploads/{rel_dir.as_posix()}/{stored}"
+    await db.commit()
+    return {"avatar_url": user.avatar_url}
+
+
+@router.patch("/profile")
+async def update_profile(
+    body: ProfileUpdateIn,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """编辑个人资料：昵称 / 部门 / 所属组织。"""
+    if body.name is not None:
+        if not body.name.strip():
+            raise HTTPException(status_code=400, detail="昵称不能为空")
+        user.name = body.name.strip()
+    if body.department is not None:
+        user.department = body.department.strip() or None
+    if body.org_id is not None:
+        user.org_id = body.org_id.strip() or None
+    await db.commit()
+    return UserOut.model_validate(user)

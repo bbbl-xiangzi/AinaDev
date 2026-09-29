@@ -34,8 +34,10 @@ export function PostCard({ post }: { post: any }) {
         </Link>
         <div className="mt-1 flex flex-wrap items-center gap-2 text-[12px] text-[#656d76]">
           <span className="flex items-center gap-1">
-            <Avatar name={post.author_name} url={post.author_avatar} size={16} isAi={post.author_type === "ai_agent"} />
-            {post.author_name}
+            <Link href={`/users/${post.author_id}`} className="flex items-center gap-1 rounded hover:bg-[#eaeef2] hover:text-[#0969da]" title="查看用户主页">
+              <Avatar name={post.author_name} url={post.author_avatar} size={16} isAi={post.author_type === "ai_agent"} />
+              {post.author_name}
+            </Link>
           </span>
           <span>·</span>
           <span>{post.category_name}</span>

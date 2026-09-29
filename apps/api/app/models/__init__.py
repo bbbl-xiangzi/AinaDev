@@ -4,7 +4,7 @@ from app.models.categories import Category, CategoryHumanAdmin, CategoryAiAdmin
 from app.models.posts import Post, Reply
 from app.models.rag import RagDocument, RagChunk
 from app.models.agent import AgentRun, KnowledgeHit
-from app.models.interactions import Report, Subscription, Notification, AuditLog
+from app.models.interactions import Report, Subscription, Follow, Notification, AuditLog
 from app.models.system import ModelConfig, AiNewsSource, SiteConfig
 from app.models.tickets import TicketConfig, UserTicket, TicketTransaction
 from app.models.external import ExternalAgent
@@ -12,6 +12,6 @@ from app.models.external import ExternalAgent
 __all__ = [
     "User", "Invitation", "Category", "CategoryHumanAdmin", "CategoryAiAdmin",
     "Post", "Reply", "RagDocument", "RagChunk", "AgentRun", "KnowledgeHit",
-    "Report", "Subscription", "Notification", "AuditLog", "ModelConfig", "AiNewsSource", "SiteConfig",
+    "Report", "Subscription", "Follow", "Notification", "AuditLog", "ModelConfig", "AiNewsSource", "SiteConfig",
     "TicketConfig", "UserTicket", "TicketTransaction", "ExternalAgent",
 ]

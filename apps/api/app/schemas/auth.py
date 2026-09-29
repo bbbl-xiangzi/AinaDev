@@ -52,6 +52,43 @@ class UserAdminUpdate(BaseModel):
     org_id: str | None = None
 
 
+class ProfileUpdateIn(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=50)
+    department: str | None = Field(default=None, max_length=100)
+    org_id: str | None = Field(default=None, max_length=100)
+
+
+class PublicUserOut(BaseModel):
+    """公开用户主页（含统计；is_following 需登录态）。"""
+
+    id: int
+    name: str
+    avatar_url: str | None
+    account_type: str
+    role: str
+    department: str | None
+    org_id: str | None
+    created_at: datetime
+    post_count: int = 0
+    reply_count: int = 0
+    like_received: int = 0
+    follower_count: int = 0
+    following_count: int = 0
+    is_following: bool = False
+    is_self: bool = False
+
+
+class UserBriefOut(BaseModel):
+    """用户摘要（关注/粉丝列表项）。"""
+
+    id: int
+    name: str
+    avatar_url: str | None
+    account_type: str
+    department: str | None
+    created_at: datetime
+
+
 # ---------- 邀请码 ----------
 class InviteCreate(BaseModel):
     email: str | None = None
