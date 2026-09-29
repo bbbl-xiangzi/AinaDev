@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_db
 from app.core.deps import get_current_user, get_optional_user
-from app.models import Follow, Notification, Post, Reply, User
+from app.models import EmployeeProfile, Follow, Notification, Post, Reply, User
 from app.schemas import PostListOut, PublicUserOut, UserBriefOut
 
 router = APIRouter(prefix="/api/users", tags=["users"])
@@ -57,6 +57,10 @@ async def public_user(
     if not u or u.deleted_at is not None:
         raise HTTPException(status_code=404, detail="用户不存在")
     stats = await _stats(db, user_id)
+    position = None
+    ep = await db.scalar(select(EmployeeProfile).where(EmployeeProfile.user_id == user_id))
+    if ep and ep.position:
+        position = ep.position
     is_following = False
     if viewer and viewer.id != user_id:
         is_following = (await db.scalar(
@@ -65,7 +69,7 @@ async def public_user(
     return PublicUserOut(
         id=u.id, name=u.name, avatar_url=u.avatar_url,
         account_type=u.account_type, role=u.role,
-        department=u.department, org_id=u.org_id, created_at=u.created_at,
+        department=u.department, org_id=u.org_id, position=position, created_at=u.created_at,
         is_following=is_following, is_self=bool(viewer and viewer.id == user_id),
         **stats,
     )

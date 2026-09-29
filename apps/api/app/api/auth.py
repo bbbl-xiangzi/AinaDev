@@ -72,7 +72,8 @@ async def me(user: User = Depends(get_current_user)):
 
 @router.post("/change-password")
 async def change_password(body: ChangePasswordIn, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
-    if not user.password_hash or not verify_password(body.old_password, user.password_hash):
+    # SSO 自动开通的账号无本地密码（password_hash 为空）：设置密码时无需验证旧密码
+    if user.password_hash and not verify_password(body.old_password, user.password_hash):
         raise HTTPException(status_code=400, detail="原密码错误")
     user.password_hash = hash_password(body.new_password)
     await db.commit()

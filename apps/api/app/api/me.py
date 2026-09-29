@@ -10,8 +10,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.core.db import get_db
 from app.core.deps import get_current_user
-from app.models import Notification, Post, Reply, Subscription, User
-from app.schemas import PostListOut, PostOut, ProfileUpdateIn, ReplyOut, UserOut
+from app.models import EmployeeProfile, Notification, Post, Reply, Subscription, User
+from app.schemas import EmployeeOut, PostListOut, PostOut, ProfileUpdateIn, ReplyOut, UserOut
 
 router = APIRouter(prefix="/api/me", tags=["me"])
 
@@ -168,7 +168,7 @@ async def update_profile(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """编辑个人资料：昵称 / 部门 / 所属组织。"""
+    """编辑个人资料：昵称 / 部门 / 所属组织 + 员工扩展信息。"""
     if body.name is not None:
         if not body.name.strip():
             raise HTTPException(status_code=400, detail="昵称不能为空")
@@ -177,5 +177,38 @@ async def update_profile(
         user.department = body.department.strip() or None
     if body.org_id is not None:
         user.org_id = body.org_id.strip() or None
+
+    # 员工扩展信息（SSO 抽取后亦可自行修改）
+    employee_fields = {
+        "employee_no": body.employee_no, "position": body.position, "org_path": body.org_path,
+        "mobile": body.mobile, "gender": body.gender, "birth_date": body.birth_date,
+        "join_date": body.join_date, "manager": body.manager, "location": body.location,
+        "employee_type": body.employee_type, "job_level": body.job_level, "cost_center": body.cost_center,
+    }
+    if any(v is not None for v in employee_fields.values()):
+        ep = await db.scalar(select(EmployeeProfile).where(EmployeeProfile.user_id == user.id))
+        if ep is None:
+            ep = EmployeeProfile(user_id=user.id)
+            db.add(ep)
+        for field, val in employee_fields.items():
+            if val is not None:
+                setattr(ep, field, val.strip() or None)
+        ep.source = ep.source or "manual"
+
     await db.commit()
     return UserOut.model_validate(user)
+
+
+@router.get("/employee", response_model=EmployeeOut)
+async def my_employee(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """员工扩展信息（SSO 来源或手动编辑，个人中心展示）。"""
+    ep = await db.scalar(select(EmployeeProfile).where(EmployeeProfile.user_id == user.id))
+    if not ep:
+        return EmployeeOut()
+    return EmployeeOut(
+        sso_sub=ep.sso_sub, employee_no=ep.employee_no, position=ep.position, org_path=ep.org_path,
+        mobile=ep.mobile, gender=ep.gender, birth_date=ep.birth_date, join_date=ep.join_date,
+        manager=ep.manager, location=ep.location, employee_type=ep.employee_type,
+        job_level=ep.job_level, cost_center=ep.cost_center, extras=ep.extras,
+        raw_claims=ep.raw_claims, source=ep.source,
+    )

@@ -77,6 +77,14 @@ async def ai_admin_health_task(ctx: dict) -> int:
         return await check_ai_admin_health(db)
 
 
+async def extract_employee_task(ctx: dict, user_id: int, claims: dict) -> None:
+    """SSO 首登后：LLM 按事实抽取员工扩展信息（失败静默，不影响登录）。"""
+    from app.services.sso_service import extract_employee_with_llm
+
+    async with SessionLocal() as db:
+        await extract_employee_with_llm(db, user_id, claims)
+
+
 async def startup(ctx: dict) -> None:
     logger.info("ARQ worker started")
 
@@ -94,6 +102,7 @@ FUNCTIONS = [
     no_reply_check_task,
     stale_archive_task,
     ai_admin_health_task,
+    extract_employee_task,
 ]
 
 

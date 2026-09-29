@@ -66,11 +66,12 @@ class RagChunkOut(BaseModel):
 # ---------- 资讯源 ----------
 class NewsSourceIn(BaseModel):
     name: str
-    type: str = "rss"
+    type: str = "rss"  # rss / rsshub / api / manual
     url: str
     target_category_id: int | None = None
     enabled: bool = True
     fetch_cron: str | None = None
+    config: dict | None = None
 
 
 class NewsSourceOut(BaseModel):
@@ -81,6 +82,7 @@ class NewsSourceOut(BaseModel):
     target_category_id: int | None
     enabled: bool
     fetch_cron: str | None
+    config: dict | None = None
     last_fetched_at: datetime | None
     created_at: datetime
 
@@ -152,6 +154,7 @@ class SiteConfigIn(BaseModel):
     upload_allowed_types: str | None = None   # 逗号分隔，如 "png,jpg,pdf"
     upload_max_size_mb: int | None = None     # 单文件大小上限 MB
     review_prompt: str | None = None          # AI 内容审核提示词（后台可编辑）
+    logo_url: str | None = None               # 站点 LOGO 图片 URL
 
 
 class StatsOut(BaseModel):
@@ -163,3 +166,54 @@ class StatsOut(BaseModel):
     open_reports: int
     ai_replies: int
     doc_count: int
+
+
+# ---------- SSO（企业统一身份登录） ----------
+class SsoConfigIn(BaseModel):
+    enabled: bool = False
+    label: str | None = None
+    issuer: str | None = None
+    client_id: str | None = None
+    client_secret: str | None = None  # 回填时为空则保持原值
+    authorization_endpoint: str | None = None
+    token_endpoint: str | None = None
+    jwks_uri: str | None = None
+    userinfo_endpoint: str | None = None
+    scopes: str | None = None
+    bind_rule: str | None = None
+    auto_provision: bool = True
+    extract_employee: bool = True
+    claim_sub: str | None = None
+    claim_email: str | None = None
+    claim_name: str | None = None
+
+
+class SsoConfigOut(BaseModel):
+    id: int
+    enabled: bool
+    label: str
+    protocol: str
+    issuer: str | None
+    client_id: str
+    has_client_secret: bool  # 是否已配置（不回传明文）
+    authorization_endpoint: str | None
+    token_endpoint: str | None
+    jwks_uri: str | None
+    userinfo_endpoint: str | None
+    scopes: str
+    bind_rule: str
+    auto_provision: bool
+    extract_employee: bool
+    claim_sub: str
+    claim_email: str
+    claim_name: str
+    redirect_uri: str  # 回调地址（由 PUBLIC_BASE_URL 自动生成，客户 IDP 需配置）
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class SsoTestOut(BaseModel):
+    ok: bool
+    message: str
+    details: dict | None = None

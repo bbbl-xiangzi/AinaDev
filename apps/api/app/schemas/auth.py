@@ -56,6 +56,47 @@ class ProfileUpdateIn(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=50)
     department: str | None = Field(default=None, max_length=100)
     org_id: str | None = Field(default=None, max_length=100)
+    # 员工扩展信息（SSO 抽取后可自行修改）
+    employee_no: str | None = Field(default=None, max_length=100)
+    position: str | None = Field(default=None, max_length=100)
+    org_path: str | None = Field(default=None, max_length=500)
+    mobile: str | None = Field(default=None, max_length=50)
+    gender: str | None = Field(default=None, max_length=20)
+    birth_date: str | None = Field(default=None, max_length=20)
+    join_date: str | None = Field(default=None, max_length=20)
+    manager: str | None = Field(default=None, max_length=100)
+    location: str | None = Field(default=None, max_length=100)
+    employee_type: str | None = Field(default=None, max_length=50)
+    job_level: str | None = Field(default=None, max_length=50)
+    cost_center: str | None = Field(default=None, max_length=100)
+
+
+class EmployeeOut(BaseModel):
+    """员工扩展信息（个人中心展示/编辑）。"""
+
+    sso_sub: str | None = None
+    employee_no: str | None = None
+    position: str | None = None
+    org_path: str | None = None
+    mobile: str | None = None
+    gender: str | None = None
+    birth_date: str | None = None
+    join_date: str | None = None
+    manager: str | None = None
+    location: str | None = None
+    employee_type: str | None = None
+    job_level: str | None = None
+    cost_center: str | None = None
+    extras: dict | None = None
+    raw_claims: dict | None = None
+    source: str = "manual"
+
+
+class SsoStatusOut(BaseModel):
+    """前台登录页：是否启用企业统一身份登录（不回传任何敏感配置）。"""
+
+    enabled: bool = False
+    label: str = "企业统一身份登录"
 
 
 class PublicUserOut(BaseModel):
@@ -68,6 +109,7 @@ class PublicUserOut(BaseModel):
     role: str
     department: str | None
     org_id: str | None
+    position: str | None = None  # 员工扩展：职位
     created_at: datetime
     post_count: int = 0
     reply_count: int = 0
