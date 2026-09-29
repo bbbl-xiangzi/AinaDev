@@ -204,6 +204,7 @@ async def exchange_token(cfg: SsoConfig, code: str, verifier: str) -> dict[str, 
     """授权码换 token（client_secret + PKCE）。"""
     token_url = (cfg.token_endpoint or "").strip()
     if not token_url:
+        from app.services.sso_service import resolve_endpoints
         endpoints = await resolve_endpoints(cfg)
         token_url = endpoints["token_endpoint"]
     ok, reason = is_safe_url(token_url)
@@ -291,24 +292,53 @@ async def verify_id_token(cfg: SsoConfig, id_token: str, nonce: str | None) -> d
     return payload
 
 
-def map_claims(claims: dict[str, Any]) -> dict[str, Any]:
-    """确定性映射：标准/常见 claim → 社区字段。只取原文有的，缺失留空。"""
+def map_claims(claims: dict[str, Any], defs: list[Any] | None = None) -> dict[str, Any]:
+    """确定性映射：claim → 社区字段。
+
+    传入员工字段定义（defs）时，只对「启用的字段」按其 claim_key 候选映射，
+    未配置映射的字段（含自定义字段）交给 LLM 抽取；defs 为空时回退内置 CLAIM_MAP。
+    只取原文有的，缺失留空。
+    """
     out: dict[str, Any] = {}
-    for target, candidates in CLAIM_MAP.items():
+
+    def _pick(target: str, candidates: list[str]) -> None:
         for c in candidates:
             val = claims.get(c)
             if isinstance(val, str) and val.strip():
                 out[target] = val.strip()
-                break
+                return
             if isinstance(val, (int, float)) and target in {"employee_no", "mobile"}:
                 out[target] = str(val)
-                break
+                return
+
+    # 身份字段（不进入字段定义表）
+    _pick("sso_sub", ["sub"])
+    _pick("email", ["email", "mail", "user_email", "upn"])
+    _pick("name", ["name", "preferred_username", "display_name", "nickname"])
+
+    if defs is None:
+        for target, candidates in CLAIM_MAP.items():
+            if target in {"sso_sub", "email", "name"}:
+                continue
+            _pick(target, candidates)
+    else:
+        for d in defs:
+            if not getattr(d, "enabled", True):
+                continue
+            candidates = [c.strip() for c in (d.claim_key or "").split(",") if c.strip()]
+            if candidates:
+                _pick(d.field_key, candidates)
     return out
 
 
 # ---------- 账号开通 / 绑定 ----------
-async def provision_or_bind(db: AsyncSession, cfg: SsoConfig, claims: dict[str, Any], mapped: dict[str, Any]) -> User:
-    """按绑定规则找到或自动开通账号；写入 employee_profiles（raw_claims 全量存档）。"""
+async def provision_or_bind(
+    db: AsyncSession, cfg: SsoConfig, claims: dict[str, Any], mapped: dict[str, Any], defs: list[Any] | None = None
+) -> User:
+    """按绑定规则找到或自动开通账号；写入 employee_profiles（raw_claims 全量存档）。
+
+    defs 为员工字段定义时，按字段 target 动态写入（user 列 / employee 列 / extras）。
+    """
     sub = mapped.get("sso_sub") or claims.get(cfg.claim_sub or "sub")
     email = mapped.get("email") or claims.get(cfg.claim_email or "email")
     name = mapped.get("name") or claims.get(cfg.claim_name or "name") or "企业用户"
@@ -339,8 +369,6 @@ async def provision_or_bind(db: AsyncSession, cfg: SsoConfig, claims: dict[str, 
             role="member",
             status="active",
             password_hash=None,  # SSO 用户无本地密码
-            department=(mapped.get("department") or None),
-            org_id=(mapped.get("org") or None),
         )
         db.add(user)
         await db.flush()
@@ -357,25 +385,39 @@ async def provision_or_bind(db: AsyncSession, cfg: SsoConfig, claims: dict[str, 
         user.name = name[:100]
     if not user.department and mapped.get("department"):
         user.department = mapped["department"][:100]
-    if not user.org_id and mapped.get("org"):
-        user.org_id = mapped["org"][:100]
+    if not user.org_id and mapped.get("org_id"):
+        user.org_id = mapped["org_id"][:100]
     user.last_active_at = _utcnow()
     await db.flush()
 
-    # 员工扩展信息 upsert
+    # 员工扩展信息 upsert（按字段定义 target 写入）
     ep = await db.scalar(select(EmployeeProfile).where(EmployeeProfile.user_id == user.id))
     if ep is None:
         ep = EmployeeProfile(user_id=user.id)
         db.add(ep)
     if sub:
         ep.sso_sub = str(sub)
-    for field in [
-        "employee_no", "position", "org_path", "mobile", "gender", "birth_date",
-        "join_date", "manager", "location", "employee_type", "job_level", "cost_center",
-    ]:
-        val = mapped.get(field)
-        if val and not getattr(ep, field):
-            setattr(ep, field, str(val)[: (500 if field == "org_path" else 100)])
+    if defs is None:
+        from app.services.employee_fields import list_field_defs
+
+        defs = await list_field_defs(db, enabled_only=True)
+    for d in defs:
+        if not d.enabled:
+            continue
+        val = mapped.get(d.field_key)
+        if not val:
+            continue
+        if d.target == "user":
+            if not getattr(user, d.field_key):
+                setattr(user, d.field_key, str(val)[:100])
+        elif d.target == "custom":
+            extras = dict(ep.extras or {})
+            if d.field_key not in extras:
+                extras[d.field_key] = str(val)
+            ep.extras = extras or None
+        else:
+            if not getattr(ep, d.field_key):
+                setattr(ep, d.field_key, str(val)[: (500 if d.field_key == "org_path" else 100)])
     ep.raw_claims = dict(claims)
     ep.source = "sso"
     await db.commit()
@@ -386,23 +428,27 @@ async def provision_or_bind(db: AsyncSession, cfg: SsoConfig, claims: dict[str, 
 async def extract_employee_with_llm(db: AsyncSession, user_id: int, claims: dict[str, Any]) -> None:
     """LLM 按事实抽取员工扩展信息（三约束：只依据原文、没有留空、杜绝猜测）。
 
+    只按「启用的字段定义」清单抽取（内置 + 自定义），不会因 claims 而新增字段。
     异步任务（worker）执行；失败静默（raw_claims 已存档，不影响登录）。
     """
     try:
+        from app.services.employee_fields import apply_field_values, list_field_defs
         from app.services.model_service import get_default_llm_config
         from app.services.llm import chat_with_json
 
+        defs = await list_field_defs(db, enabled_only=True)
+        if not defs:
+            return
         cfg = await get_default_llm_config(db)
+        field_desc = "、".join(f"{d.field_key}({d.field_name})" for d in defs)
         prompt = (
             "你是企业身份数据抽取助手。下面 JSON 是从企业统一身份认证(SSO)返回的员工原始信息 claims，"
             "字段名可能各家不同。请严格依据原文，抽取以下字段：\n"
-            "employee_no(工号)、position(职位)、org_path(组织架构路径)、mobile(手机号)、gender(性别)、"
-            "birth_date(出生日期)、join_date(入职日期)、manager(直属上级)、location(办公地点)、"
-            "employee_type(员工类型)、job_level(职级)、cost_center(成本中心)、department(部门)。\n"
+            f"{field_desc}。\n"
             "硬性要求：\n"
             "1. 只从给定 JSON 中提取明确出现的信息，原文没有的字段一律输出 null；\n"
             "2. 严禁猜测、推断、拼接或编造任何值；\n"
-            "3. 输出严格 JSON 对象：{\"employee_no\": ...|\"department\": ...}，只含上述字段，值为字符串或 null。\n"
+            "3. 输出严格 JSON 对象，键只含上述字段的 field_key，值为字符串或 null。\n"
             f"原始 claims JSON：\n{json.dumps(claims, ensure_ascii=False)}\n"
         )
         raw = await chat_with_json(cfg, prompt, "请按上述要求输出 JSON。")
@@ -412,16 +458,25 @@ async def extract_employee_with_llm(db: AsyncSession, user_id: int, claims: dict
         ep = await db.scalar(select(EmployeeProfile).where(EmployeeProfile.user_id == user_id))
         if ep is None:
             return
-        changed = False
-        for field in [
-            "employee_no", "position", "org_path", "mobile", "gender", "birth_date",
-            "join_date", "manager", "location", "employee_type", "job_level", "cost_center", "department",
-        ]:
-            val = parsed.get(field)
-            if isinstance(val, str) and val.strip() and not getattr(ep, field):
-                setattr(ep, field, val.strip()[: (500 if field == "org_path" else 100)])
-                changed = True
-        if changed:
+        user = await db.get(User, user_id)
+        if user is None:
+            return
+        # 只填「当前为空」的字段，不覆盖用户已自行修改的值
+        filtered: dict[str, Any] = {}
+        for d in defs:
+            val = parsed.get(d.field_key)
+            if isinstance(val, str) and val.strip():
+                if d.target == "user":
+                    if not getattr(user, d.field_key):
+                        filtered[d.field_key] = val.strip()
+                elif d.target == "custom":
+                    if not (ep.extras or {}).get(d.field_key):
+                        filtered[d.field_key] = val.strip()
+                else:
+                    if not getattr(ep, d.field_key):
+                        filtered[d.field_key] = val.strip()
+        if filtered:
+            apply_field_values(user, ep, defs, filtered)
             await db.commit()
     except Exception as e:
         logger.warning("LLM 抽取员工信息失败（不影响登录）：%s", e)
