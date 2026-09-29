@@ -162,7 +162,7 @@ async def sso_callback(
         f"localStorage.setItem('community_token', {token_json}.access_token);"
         f"localStorage.setItem('community_user', JSON.stringify({user_data}));"
         "}catch(e){}"
-        "location.href='/';".replace("'", "\'")
+        "location.href='/';"
         "</script></body></html>"
     )
     return HTMLResponse(body)
