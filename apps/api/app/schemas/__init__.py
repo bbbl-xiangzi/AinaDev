@@ -10,7 +10,7 @@ from app.schemas.forum import (
     ExternalAgentIn, ExternalAgentOut,
 )
 from app.schemas.admin import (
-    ModelConfigIn, ModelConfigOut, RagDocumentOut, NewsSourceIn, NewsSourceOut,
+    ModelConfigIn, ModelConfigOut, RagDocumentOut, RagChunkOut, NewsSourceIn, NewsSourceOut,
     ReviewItemOut, ReviewAction, AuditLogOut, AgentRunOut, SiteConfigIn, StatsOut,
     SsoConfigIn, SsoConfigOut, SsoTestOut,
 )
@@ -22,7 +22,7 @@ __all__ = [
     "CategoryIn", "CategoryUpdate", "CategoryOut", "AiAdminBrief", "HumanAdminOut", "AiAdminIn", "AiAdminOut",
     "PostIn", "PostOut", "PostListOut", "PostModerate", "ReplyIn", "ReplyOut", "SearchQuery",
     "ExternalAgentIn", "ExternalAgentOut",
-    "ModelConfigIn", "ModelConfigOut", "RagDocumentOut", "NewsSourceIn", "NewsSourceOut",
+    "ModelConfigIn", "ModelConfigOut", "RagDocumentOut", "RagChunkOut", "NewsSourceIn", "NewsSourceOut",
     "ReviewItemOut", "ReviewAction", "AuditLogOut", "AgentRunOut", "SiteConfigIn", "StatsOut",
     "SsoConfigIn", "SsoConfigOut", "SsoTestOut",
 ]
