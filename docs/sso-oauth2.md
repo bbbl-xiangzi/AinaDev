@@ -18,30 +18,6 @@
 
 OAuth2 仅把明确映射的用户字段传入账号开通与员工抽取，不保存完整 Token 响应、OTP 等未映射敏感字段。OIDC 保留原员工 claims 映射行为。
 
-## 东方电气预设
-
-点击“使用东方电气预设”只修改未保存表单，并关闭启用开关供复核。填写本应用 Client ID/Secret，不使用其他系统的凭据。
-
-| 项目 | 文档预设 |
-|---|---|
-| 协议 | OAuth2 授权码 |
-| 授权地址 | `https://iam.dongfang.com/idp/oauth2/authorize` |
-| Token 地址 | `https://iam.dongfang.com/idp/oauth2/getToken` |
-| Token 请求 | POST + Query，客户端凭据使用参数 |
-| 用户信息 | GET + Query，参数 `access_token` |
-| 用户信息地址 | `https://iam.dongfang.com/idp/oauth2/getUserInfo?client_id=本应用ID` |
-| 唯一账号标识 | `spRoleList`，严格单值数组，按 Word 暂定 |
-| 用户名 / 姓名 / 邮箱 | `loginName` / `displayName` / `mail` |
-| PKCE / Scope | 文档未要求；预设关闭 / 留空 |
-
-填写或修改 Client ID 后，核对用户信息地址的 `client_id` 查询参数。客户实际域名不同时修改三个接口地址。
-
-其他平台截图以 `loginName` 为账号名，但这不能证明它就是唯一主键。现场用脱敏响应核实 `uid`、`loginName`、`spRoleList` 的含义及应用权限规则；确认前，空或多值 `spRoleList` 拒绝登录。
-
-回调使用管理页显示的 `PUBLIC_BASE_URL/api/auth/sso/callback`。从社区登录按钮发起；直接访问后端登录 URL 会因缺少浏览器标记而拒绝。
-
-退出地址由客户确认后填写。Word GLO 示例使用原拼写 `redirctToUrl`、`redirectToLogin=true`、`entityId=应用ID`，返回地址按客户白名单设置。
-
 ## 升级与网络
 
 1. 升级 API 和 Web，设置正确 `PUBLIC_BASE_URL`。API 启动通过幂等 ALTER 添加 `sso_configs.oauth_options` JSON 列，原记录协议保留 OIDC。先备份数据库。

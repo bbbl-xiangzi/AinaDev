@@ -12,11 +12,11 @@ from app.services import sso_service
 
 class OAuthTests(unittest.IsolatedAsyncioTestCase):
     def cfg(self, **options):
-        return SsoConfig(protocol="oauth2", client_id="dec-client", scopes="", issuer=None,
-            authorization_endpoint="https://iam.example/idp/oauth2/authorize",
-            token_endpoint="https://iam.example/idp/oauth2/getToken",
-            userinfo_endpoint="https://iam.example/idp/oauth2/getUserInfo?client_id=dec-client",
-            claim_sub="spRoleList", claim_name="displayName", claim_email="mail",
+        return SsoConfig(protocol="oauth2", client_id="test-client", scopes="", issuer=None,
+            authorization_endpoint="https://iam.example/oauth/authorize",
+            token_endpoint="https://iam.example/oauth/token",
+            userinfo_endpoint="https://iam.example/oauth/userinfo?client_id=test-client",
+            claim_sub="subject_ids", claim_name="displayName", claim_email="mail",
             oauth_options={"subject_mode": "single_array", **options})
 
     async def test_oauth_does_not_require_oidc_discovery_or_jwks(self):
@@ -30,13 +30,13 @@ class OAuthTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("scope", params)
         self.assertNotIn("code_challenge", params)
 
-    async def test_word_token_post_query_and_userinfo_get_query(self):
+    async def test_token_post_query_and_userinfo_get_query(self):
         cfg = self.cfg(token_mode="query", userinfo_mode="query")
         requests = []
         def handle(req):
             requests.append(req)
-            return httpx.Response(200, json={"access_token":"upstream"} if "getToken" in req.url.path
-                                  else {"spRoleList":["person-1"], "displayName":"张三"})
+            return httpx.Response(200, json={"access_token":"upstream"} if "/token" in req.url.path
+                                  else {"subject_ids":["person-1"], "displayName":"张三"})
         client = httpx.AsyncClient(transport=httpx.MockTransport(handle))
         with patch.object(sso_service, "client_secret_of", return_value="test-secret"), \
              patch("app.services.oauth2_service.is_safe_sso_url", return_value=(True,"")), \
@@ -50,7 +50,7 @@ class OAuthTests(unittest.IsolatedAsyncioTestCase):
              patch("app.services.oauth2_service.httpx.AsyncClient", return_value=client):
             claims = await sso_service.fetch_userinfo(cfg,token["access_token"])
         self.assertEqual(requests[1].url.params["access_token"],"upstream")
-        self.assertEqual(requests[1].url.params["client_id"],"dec-client")
+        self.assertEqual(requests[1].url.params["client_id"],"test-client")
         normalized = sso_service.normalize_claims(cfg,claims)
         self.assertEqual(normalized["sub"],"person-1")
         self.assertEqual(normalized["name"],"张三")
@@ -59,8 +59,8 @@ class OAuthTests(unittest.IsolatedAsyncioTestCase):
         cfg = self.cfg()
         for value in ([],["a","b"],[""],[" "],"a",None,[42]):
             with self.subTest(value=value), self.assertRaises(ValueError):
-                sso_service.normalize_claims(cfg,{"spRoleList":value,"sub":"must-not-fallback"})
-        result = sso_service.normalize_claims(cfg,{"spRoleList":["a"],"sub":"wrong","mail":"x@example.com","email":"wrong@example.com"})
+                sso_service.normalize_claims(cfg,{"subject_ids":value,"sub":"must-not-fallback"})
+        result = sso_service.normalize_claims(cfg,{"subject_ids":["a"],"sub":"wrong","mail":"x@example.com","email":"wrong@example.com"})
         self.assertEqual(result["sub"],"a")
         self.assertEqual(result["email"],"x@example.com")
 
@@ -70,7 +70,7 @@ class OAuthTests(unittest.IsolatedAsyncioTestCase):
         endpoints=await sso_service.resolve_endpoints(cfg)
         params=parse_qs(urlsplit(sso_service.authorize_url_of(cfg,endpoints,"state","verifier","nonce")).query)
         self.assertEqual(params["tenant"],["one"])
-        self.assertEqual(params["app_id"],["dec-client"])
+        self.assertEqual(params["app_id"],["test-client"])
         self.assertNotIn("client_id",params)
 
     async def test_business_error_and_redirect_are_rejected_without_secrets(self):

@@ -134,12 +134,12 @@ class SsoCallbackTests(unittest.IsolatedAsyncioTestCase):
     async def test_oauth_callback_accepts_access_token_without_id_token(self):
         self.cfg.protocol="oauth2"
         self.cfg.oauth_options={"subject_mode":"single_array"}
-        self.cfg.claim_sub="spRoleList"
+        self.cfg.claim_sub="subject_ids"
         self.cfg.claim_name="displayName"
         self.cfg.claim_email="mail"
         self.claims={"sub":"person-1","name":"张三","email":"","preferred_username":"","mobile":""}
         with patch.object(sso_service,"exchange_token",AsyncMock(return_value={"access_token":"upstream","uid":"u1"})), \
-             patch.object(sso_service,"fetch_userinfo",AsyncMock(return_value={"spRoleList":["person-1"],"displayName":"张三","uid":"u1","otpKey":"never-store"})):
+             patch.object(sso_service,"fetch_userinfo",AsyncMock(return_value={"subject_ids":["person-1"],"displayName":"张三","uid":"u1","otpKey":"never-store"})):
             await self.login_and_callback()
         self.assertEqual(self.redis.jobs[0][1][1],self.claims)
         sso_service.verify_id_token.assert_not_awaited()
@@ -155,10 +155,10 @@ class SsoCallbackTests(unittest.IsolatedAsyncioTestCase):
     async def test_oauth_multiple_subjects_do_not_provision_user(self):
         self.cfg.protocol="oauth2"
         self.cfg.oauth_options={"subject_mode":"single_array","userinfo_source":"token","userinfo_path":"user"}
-        self.cfg.claim_sub="spRoleList"
+        self.cfg.claim_sub="subject_ids"
         login=await auth_sso.sso_login(db=self.db,login_attempt="browser-attempt-12345")
         state=parse_qs(urlsplit(login.headers["location"]).query)["state"][0]
-        with patch.object(sso_service,"exchange_token",AsyncMock(return_value={"access_token":"upstream","user":{"spRoleList":["a","b"]}})):
+        with patch.object(sso_service,"exchange_token",AsyncMock(return_value={"access_token":"upstream","user":{"subject_ids":["a","b"]}})):
             with self.assertRaises(HTTPException):
                 await auth_sso.sso_callback(code="code",state=state,db=self.db)
         sso_service.provision_or_bind.assert_not_awaited()

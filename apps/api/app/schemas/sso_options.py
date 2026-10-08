@@ -17,8 +17,8 @@ class OAuthOptions(BaseModel):
     token_params: dict[str, str] = Field(default_factory=dict)
     access_token_param: str = "access_token"
     userinfo_path: str = ""
-    claim_username: str = "loginName"
-    claim_mobile: str = "mobile"
+    claim_username: str = "preferred_username"
+    claim_mobile: str = "phone_number"
     subject_mode: Literal["string", "single_array"] = "string"
     logout_url: str = Field(default="", max_length=2000)
 

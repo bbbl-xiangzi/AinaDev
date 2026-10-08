@@ -2,7 +2,7 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import { http } from "@/lib/api";
-import { applyDecPreset, oauthDefaults, ssoPayload } from "@/lib/sso-config";
+import { oauthDefaults, ssoPayload } from "@/lib/sso-config";
 
 const input = "w-full rounded-md border border-[#d0d7de] bg-white px-3 py-2 text-[13px] text-[#24292f] outline-none focus:border-[#0969da] focus:ring-2 focus:ring-[#0969da]/15 disabled:bg-[#f6f8fa]";
 const card = "rounded-lg border border-[#d0d7de] bg-white p-4";
@@ -46,7 +46,6 @@ export function SsoPanel() {
       <Section title="企业统一身份登录" description="配置企业身份服务，员工可使用企业账号登录社区。当前部署使用一套生效配置。">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <label className="flex items-center gap-2 text-[13px]"><input type="checkbox" checked={!!cfg.enabled} onChange={e=>set({enabled:e.target.checked})} className="h-4 w-4 accent-[#0969da]"/>启用 SSO 登录入口</label>
-          <button className={secondary} onClick={()=>{set(applyDecPreset(cfg));setNotice("已填入东方电气文档预设，尚未保存。请核对应用 ID、用户信息地址中的 client_id 和账号标识。退出地址需客户确认后填写。");}}>使用东方电气预设</button>
         </div>
         <div className="mt-4 grid gap-4 md:grid-cols-2">
           <Field title="认证协议"><select className={input} value={cfg.protocol} onChange={e=>set({protocol:e.target.value,scopes:e.target.value==="oauth2"?"":"openid profile email"})}><option value="oidc">OpenID Connect（OIDC）</option><option value="oauth2">OAuth 2.0（授权码）</option></select></Field>
@@ -96,14 +95,13 @@ export function SsoPanel() {
             {opt.userinfo_mode!=="bearer"&&<Field title="Access Token 参数名">{optText("access_token_param")}</Field>}
           </>}
           {oauth&&<Field title="用户信息对象路径" hint="根对象留空；嵌套对象例如 data.user。">{optText("userinfo_path","例如 data.user")}</Field>}
-          <Field title="唯一账号标识字段" hint={oauth?"例如 uid、loginName；应由客户确认稳定且唯一。":"通常使用已验证的 sub。"}>{text("claim_sub","sub")}</Field>
+          <Field title="唯一账号标识字段" hint={oauth?"填写身份服务提供的稳定、唯一标识字段，例如 id 或 uid。":"通常使用已验证的 sub。"}>{text("claim_sub","sub")}</Field>
           {oauth&&<Field title="账号标识格式" hint="单值数组模式遇到空数组或多个值时拒绝登录。">{choose("subject_mode",[["string","字符串"],["single_array","严格单值数组"]])}</Field>}
           {oauth&&<Field title="用户名字段">{optText("claim_username")}</Field>}
           <Field title="姓名字段">{text("claim_name")}</Field>
           <Field title="邮箱字段">{text("claim_email")}</Field>
           {oauth&&<Field title="手机字段">{optText("claim_mobile")}</Field>}
         </div>
-        {oauth&&cfg.claim_sub==="spRoleList"&&<p className="mt-4 rounded-md border border-[#d0d7de] bg-[#f6f8fa] p-3 text-[12px] leading-relaxed text-[#656d76]">东方电气 Word 将 spRoleList 描述为应用账号主键。当前按单值数组处理；请通过客户说明及脱敏响应核实，确认前不要直接改用其他字段或取数组第一项。</p>}
       </Section>
 
       <Section title="账号与退出" description="首次开通的账号默认为普通会员。后续权限在社区用户管理中分配。">
