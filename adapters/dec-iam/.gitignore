@@ -1,0 +1,6 @@
+.env
+.venv/
+secrets/
+community-sso.json
+compose.override.yml
+__pycache__/

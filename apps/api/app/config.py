@@ -27,6 +27,10 @@ class Settings(BaseSettings):
     invite_expire_days: int = 7
     # 出站请求安全：拦截私网/回环/云元数据地址（防 SSRF）。客户若需抓内网 RSS/资讯源，设 false
     block_private_urls: bool = True
+    # 精确域名白名单，仅作用于 HTTPS SSO 端点，逗号分隔。
+    sso_allowed_hosts: str = ""
+    # 可选：浏览器退出 SSO 时跳转的 HTTPS 地址，例如适配器 /logout。
+    sso_logout_url: str = ""
 
     # 默认模型（首次启动写入 model_configs）
     default_llm_base_url: str = "https://ark.cn-beijing.volces.com/api/v3"

@@ -1,5 +1,7 @@
 # AI 原生开发者社区（ai-native-community）
 
+东方电气 IAM 独立适配服务及配置器见 [部署与接入说明](adapters/dec-iam/README.md)。它按客户 OAuth2 接口对接 IAM，向本社区提供固定客户端 OIDC 授权码流程。
+
 面向企业的 **AI 原生开发者社区**：发帖、回帖、知识库问答由 **LangGraph Agent 流水线** 自动运维（**发帖先经 AI 异步审核**，通过后才发布并触发 AI 回帖），并内置 **MCP 服务**，可接入豆包工作等智能体生态做每日运维。
 
 - 前端：Next.js 15（App Router）+ TypeScript + Tailwind + ByteMD（Markdown 编辑器，完全本地化，无 CDN 依赖）

@@ -131,6 +131,7 @@ class SsoStatusOut(BaseModel):
 
     enabled: bool = False
     label: str = "企业统一身份登录"
+    logout_url: str | None = None
 
 
 class PublicUserOut(BaseModel):

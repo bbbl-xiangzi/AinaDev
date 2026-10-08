@@ -1,0 +1,38 @@
+name: dec-iam
+services:
+  adapter:
+    build: .
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        format: raw
+    ports:
+      - "127.0.0.1:8091:8080"
+    volumes:
+      - ./secrets/signing.pem:/run/secrets/dec-signing.pem:ro
+    depends_on:
+      dec-redis:
+        condition: service_healthy
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    networks: [frontend, state]
+  dec-redis:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    command: [redis-server, --save, "", --appendonly, "no", --maxmemory, 128mb, --maxmemory-policy, noeviction]
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    networks: [state]
+networks:
+  frontend: {}
+  state:
+    internal: true

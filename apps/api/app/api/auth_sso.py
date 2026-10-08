@@ -1,5 +1,6 @@
 """SSO 登录端点：企业统一身份登录（OIDC 授权码 + PKCE）。"""
 import logging
+import re
 
 import redis.asyncio as aioredis
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -22,22 +23,24 @@ async def sso_status(db: AsyncSession = Depends(get_db)):
     cfg = await sso_service.get_active_config(db)
     if not cfg:
         return SsoStatusOut()
-    return SsoStatusOut(enabled=True, label=cfg.label or "企业统一身份登录")
+    return SsoStatusOut(enabled=True, label=cfg.label or "企业统一身份登录", logout_url=settings.sso_logout_url or None)
 
 
 @router.get("/login")
-async def sso_login(db: AsyncSession = Depends(get_db)):
+async def sso_login(login_attempt: str = "", db: AsyncSession = Depends(get_db)):
     """登录入口：生成 state + PKCE，302 到企业应用中台授权页。"""
     cfg = await sso_service.get_active_config(db)
     if not cfg:
         raise HTTPException(status_code=400, detail="企业统一身份登录未启用")
+    if not re.fullmatch(r"[A-Za-z0-9_-]{16,128}", login_attempt):
+        raise HTTPException(status_code=400, detail="请从社区登录页发起企业登录")
     endpoints = await sso_service.resolve_endpoints(cfg)
     state, verifier, nonce = sso_service._new_state_record()
     async with aioredis.from_url(settings.redis_url) as redis:
         await redis.setex(
             f"{sso_service.STATE_PREFIX}{state}",
             sso_service.STATE_TTL,
-            f"{verifier}|{nonce}",
+            f"{verifier}|{nonce}|{login_attempt}",
         )
     url = sso_service.authorize_url_of(cfg, endpoints, state, verifier, nonce)
     return RedirectResponse(url=url, status_code=302)
@@ -55,7 +58,10 @@ async def sso_callback(code: str = "", state: str = "", error: str = "", db: Asy
         await redis.delete(f"{sso_service.STATE_PREFIX}{state}")
     if not rec:
         raise HTTPException(status_code=400, detail="state 无效或已过期（请重新发起登录）")
-    verifier, nonce = rec.decode().split("|", 1)
+    parts = rec.decode().split("|")
+    if len(parts) != 3:
+        raise HTTPException(status_code=400, detail="登录请求已失效，请从社区登录页重试")
+    verifier, nonce, login_attempt = parts
 
     cfg = await sso_service.get_active_config(db)
     if not cfg:
@@ -69,6 +75,8 @@ async def sso_callback(code: str = "", state: str = "", error: str = "", db: Asy
         payload = await sso_service.verify_id_token(cfg, id_token, nonce)
         access_token = token_resp.get("access_token", "")
         userinfo = await sso_service.fetch_userinfo(cfg, access_token)
+        if userinfo and userinfo.get("sub") != payload.get("sub"):
+            raise ValueError("UserInfo 与 ID Token 用户不一致")
         claims = {**payload, **userinfo}
         # 按启用的员工字段定义做确定性映射（未配置映射的字段交给 LLM 抽取）
         from app.services.employee_fields import list_field_defs
@@ -95,6 +103,6 @@ async def sso_callback(code: str = "", state: str = "", error: str = "", db: Asy
 
     to = f"{settings.public_base_url.rstrip('/')}/login?sso_ok=1"
     return RedirectResponse(
-        url=f"{to}#token={access}&refresh={quote(refresh)}&user_id={user.id}",
+        url=f"{to}#token={access}&refresh={quote(refresh)}&user_id={user.id}&attempt={quote(login_attempt)}",
         status_code=302,
     )

@@ -70,13 +70,14 @@ class SsoCallbackTests(unittest.IsolatedAsyncioTestCase):
         self.enterContext(patch.object(auth_sso.settings, "public_base_url", "https://community.example"))
 
     async def login_and_callback(self):
-        login = await auth_sso.sso_login(db=self.db)
+        login = await auth_sso.sso_login(db=self.db, login_attempt="browser-attempt-12345")
         self.assertEqual(login.status_code, 302)
         params = parse_qs(urlsplit(login.headers["location"]).query)
         state = params["state"][0]
         response = await auth_sso.sso_callback(code="test-code", state=state, db=self.db)
         self.assertEqual(response.status_code, 302)
         tokens = parse_qs(urlsplit(response.headers["location"]).fragment)
+        self.assertEqual(tokens["attempt"], ["browser-attempt-12345"])
         self.assertEqual(decode_token(tokens["token"][0])["sub"], "42")
         self.assertEqual(decode_token(tokens["refresh"][0], "refresh")["sub"], "42")
         self.assertNotIn("test-id-token", response.headers["location"])
@@ -120,7 +121,7 @@ class SsoCallbackTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.redis.jobs, [])
 
     async def test_failed_identity_verification_is_not_treated_as_optional(self):
-        self.redis.values["sso:auth:state:valid-state"] = b"verifier|nonce"
+        self.redis.values["sso:auth:state:valid-state"] = b"verifier|nonce|browser-attempt-12345"
         with patch.object(sso_service, "verify_id_token", AsyncMock(side_effect=ValueError("invalid signature"))):
             with self.assertRaises(HTTPException) as caught:
                 await auth_sso.sso_callback(code="test-code", state="valid-state", db=self.db)
