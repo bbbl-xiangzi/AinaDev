@@ -17,7 +17,7 @@ import logging
 import secrets
 from datetime import datetime, timezone
 from typing import Any
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 
 import httpx
 import jwt
@@ -35,6 +35,20 @@ logger = logging.getLogger(__name__)
 WELL_KNOWN = "/.well-known/openid-configuration"
 STATE_TTL = 600  # state 缓存有效期（秒）
 STATE_PREFIX = "sso:auth:state:"
+
+
+def is_safe_sso_url(url: str) -> tuple[bool, str]:
+    """Allow only explicitly configured private HTTPS SSO hosts; no global bypass."""
+    try:
+        parsed = urlsplit(url)
+        if parsed.username or parsed.password or parsed.fragment:
+            return False, "SSO URL 不允许凭据或 fragment"
+        hosts = {h.strip().lower() for h in settings.sso_allowed_hosts.split(",") if h.strip()}
+        if parsed.scheme == "https" and parsed.hostname and parsed.hostname.lower() in hosts:
+            return True, ""
+    except ValueError:
+        return False, "SSO URL 格式错误"
+    return is_safe_url(url)
 
 # 确定性映射：目标字段 → 候选 claim 名（按优先级，取首个非空字符串）
 CLAIM_MAP: dict[str, list[str]] = {
@@ -90,24 +104,32 @@ def client_secret_of(cfg: SsoConfig) -> str:
 
 async def resolve_endpoints(cfg: SsoConfig) -> dict[str, str]:
     """优先显式配置的端点；否则从 issuer 自动发现。返回 {authorization,token,jwks,userinfo}。"""
+    if getattr(cfg,"protocol","oidc") == "oauth2":
+        from app.services.oauth2_service import checked_url, options
+        fields=["authorization_endpoint","token_endpoint"]
+        if options(cfg).userinfo_source=="endpoint":
+            fields.append("userinfo_endpoint")
+        return {field:checked_url(getattr(cfg,field,None)) for field in fields}
     endpoints: dict[str, str] = {
         "authorization_endpoint": (cfg.authorization_endpoint or "").strip(),
         "token_endpoint": (cfg.token_endpoint or "").strip(),
         "jwks_uri": (cfg.jwks_uri or "").strip(),
         "userinfo_endpoint": (cfg.userinfo_endpoint or "").strip(),
     }
-    if cfg.issuer:
+    if cfg.issuer and not all(endpoints.values()):
         issuer = cfg.issuer.strip().rstrip("/")
         if not issuer.startswith(("http://", "https://")):
             raise ValueError("Issuer URL 必须以 http(s):// 开头")
-        ok, reason = is_safe_url(issuer)
+        ok, reason = is_safe_sso_url(issuer)
         if not ok:
             raise ValueError(f"Issuer URL 不合法：{reason}")
         well_known = f"{issuer}{WELL_KNOWN}"
-        async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
+        async with httpx.AsyncClient(timeout=15, follow_redirects=False) as client:
             resp = await client.get(well_known)
             resp.raise_for_status()
             meta = resp.json()
+        if meta.get("issuer") != cfg.issuer.strip():
+            raise ValueError("Discovery issuer 与配置不一致")
         for field, meta_key in [
             ("authorization_endpoint", "authorization_endpoint"),
             ("token_endpoint", "token_endpoint"),
@@ -124,20 +146,29 @@ async def resolve_endpoints(cfg: SsoConfig) -> dict[str, str]:
 
 async def test_connection(cfg: SsoConfig) -> dict[str, Any]:
     """后台「测试连接」：探测 discovery、端点可达、JWKS 可拉取。"""
+    if getattr(cfg,"protocol","oidc")=="oauth2":
+        try:
+            endpoints=await resolve_endpoints(cfg)
+            return {"ok":True,"message":"配置与地址检查通过；账号、密钥和接口互通需实际登录验证", "details":{key:"配置有效" for key in endpoints}}
+        except ValueError:
+            return {"ok":False,"message":"接口配置无效或被出站安全策略拦截", "details":None}
     try:
         endpoints = await resolve_endpoints(cfg)
     except Exception as e:
         return {"ok": False, "message": f"发现端点失败：{e}"}
     checks: dict[str, Any] = {}
-    async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
+    async with httpx.AsyncClient(timeout=15, follow_redirects=False) as client:
         for name, url in endpoints.items():
             try:
-                ok, reason = is_safe_url(url)
+                ok, reason = is_safe_sso_url(url)
                 if not ok:
                     checks[name] = f"被 SSRF 防护拦截：{reason}"
                     continue
                 resp = await client.get(url)
-                checks[name] = f"HTTP {resp.status_code}" if resp.status_code < 400 else f"HTTP {resp.status_code}（异常）"
+                # 无凭据探测认证端点，400/401/405 是正常协议拒绝，不是连接失败。
+                expected = {"authorization_endpoint": {400, 401}, "token_endpoint": {400, 401, 405}, "userinfo_endpoint": {400, 401}}.get(name, set())
+                accepted = 200 <= resp.status_code < 300 or resp.status_code in expected
+                checks[name] = f"OK（HTTP {resp.status_code}，仅连通性探测）" if accepted else f"HTTP {resp.status_code}（异常）"
             except Exception as e:
                 checks[name] = f"请求失败：{type(e).__name__}"
         # JWKS 内容可解析且含 keys
@@ -151,13 +182,13 @@ async def test_connection(cfg: SsoConfig) -> dict[str, Any]:
     ok = all(v.startswith("HTTP 2") or v.startswith("OK") for v in checks.values())
     return {
         "ok": ok,
-        "message": "连接正常，端点全部可达" if ok else "部分端点异常，请检查配置",
+        "message": "端点探测通过，仍需实际登录验证凭据和授权" if ok else "部分端点异常，请检查配置",
         "details": checks,
     }
 
 
 async def _fetch_jwks(client: httpx.AsyncClient, jwks_uri: str) -> dict | None:
-    ok, reason = is_safe_url(jwks_uri)
+    ok, reason = is_safe_sso_url(jwks_uri)
     if not ok:
         logger.warning("JWKS URL 被拦截：%s", reason)
         return None
@@ -185,6 +216,9 @@ def _new_state_record() -> tuple[str, str, str]:
 
 
 def authorize_url_of(cfg: SsoConfig, endpoints: dict[str, str], state: str, verifier: str, nonce: str) -> str:
+    if getattr(cfg,"protocol","oidc")=="oauth2":
+        from app.services.oauth2_service import authorize_url
+        return authorize_url(cfg,endpoints,state,verifier)
     challenge = _b64url(hashlib.sha256(verifier.encode("ascii")).digest())
     params = {
         "response_type": "code",
@@ -202,12 +236,15 @@ def authorize_url_of(cfg: SsoConfig, endpoints: dict[str, str], state: str, veri
 # ---------- 回调处理 ----------
 async def exchange_token(cfg: SsoConfig, code: str, verifier: str) -> dict[str, Any]:
     """授权码换 token（client_secret + PKCE）。"""
+    if getattr(cfg,"protocol","oidc")=="oauth2":
+        from app.services.oauth2_service import exchange
+        return await exchange(cfg,code,verifier)
     token_url = (cfg.token_endpoint or "").strip()
     if not token_url:
         from app.services.sso_service import resolve_endpoints
         endpoints = await resolve_endpoints(cfg)
         token_url = endpoints["token_endpoint"]
-    ok, reason = is_safe_url(token_url)
+    ok, reason = is_safe_sso_url(token_url)
     if not ok:
         raise ValueError(f"Token 端点被 SSRF 防护拦截：{reason}")
     data = {
@@ -218,7 +255,7 @@ async def exchange_token(cfg: SsoConfig, code: str, verifier: str) -> dict[str, 
         "client_secret": client_secret_of(cfg),
         "code_verifier": verifier,
     }
-    async with httpx.AsyncClient(timeout=20, follow_redirects=True) as client:
+    async with httpx.AsyncClient(timeout=20, follow_redirects=False) as client:
         resp = await client.post(token_url, data=data)
         if resp.status_code >= 400:
             raise ValueError(f"换取令牌失败：HTTP {resp.status_code} {resp.text[:300]}")
@@ -226,13 +263,16 @@ async def exchange_token(cfg: SsoConfig, code: str, verifier: str) -> dict[str, 
 
 
 async def fetch_userinfo(cfg: SsoConfig, access_token: str) -> dict[str, Any]:
+    if getattr(cfg,"protocol","oidc")=="oauth2":
+        from app.services.oauth2_service import userinfo
+        return await userinfo(cfg,access_token)
     userinfo_url = (cfg.userinfo_endpoint or "").strip()
     if not userinfo_url:
         return {}
-    ok, reason = is_safe_url(userinfo_url)
+    ok, reason = is_safe_sso_url(userinfo_url)
     if not ok:
         raise ValueError(f"UserInfo 端点被 SSRF 防护拦截：{reason}")
-    async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
+    async with httpx.AsyncClient(timeout=15, follow_redirects=False) as client:
         resp = await client.get(userinfo_url, headers={"Authorization": f"Bearer {access_token}"})
         if resp.status_code >= 400:
             logger.warning("userinfo 拉取失败：HTTP %s", resp.status_code)
@@ -242,11 +282,10 @@ async def fetch_userinfo(cfg: SsoConfig, access_token: str) -> dict[str, Any]:
 
 async def verify_id_token(cfg: SsoConfig, id_token: str, nonce: str | None) -> dict[str, Any]:
     """验签 id_token：JWKS（RS256/ES256）/ HS256，校验 iss/aud/exp/iat/nonce。"""
-    unverified = jwt.decode(id_token, options={"verify_signature": False})
     headers = jwt.get_unverified_header(id_token)
     alg = headers.get("alg", "RS256")
-    iss = unverified.get("iss", "")
-    aud = unverified.get("aud")
+    if not cfg.issuer or not cfg.client_id:
+        raise ValueError("校验 ID Token 必须配置 Issuer 与 Client ID")
 
     key: Any = None
     if alg in {"RS256", "ES256", "RS384", "ES384"}:
@@ -254,7 +293,7 @@ async def verify_id_token(cfg: SsoConfig, id_token: str, nonce: str | None) -> d
         if not jwks_uri:
             endpoints = await resolve_endpoints(cfg)
             jwks_uri = endpoints["jwks_uri"]
-        async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
+        async with httpx.AsyncClient(timeout=15, follow_redirects=False) as client:
             jwks = await _fetch_jwks(client, jwks_uri)
         if not jwks:
             raise ValueError("无法获取 IDP JWKS，验签失败")
@@ -278,18 +317,39 @@ async def verify_id_token(cfg: SsoConfig, id_token: str, nonce: str | None) -> d
     else:
         raise ValueError(f"不支持的签名算法 {alg}")
 
-    options = {"verify_exp": True, "verify_iat": True, "verify_nbf": True}
+    options = {"verify_exp": True, "verify_iat": True, "verify_nbf": True, "require": ["iss", "aud", "exp", "iat", "sub"]}
     payload = jwt.decode(
         id_token,
         key=key,
         algorithms=verify_algs,
-        audience=aud,
-        issuer=iss,
+        audience=cfg.client_id,
+        issuer=cfg.issuer.strip(),
         options=options,
     )
     if nonce and payload.get("nonce") != nonce:
         raise ValueError("nonce 校验失败（授权请求与回调不匹配）")
+    if not isinstance(payload.get("sub"), str) or not payload["sub"].strip():
+        raise ValueError("ID Token 缺少有效用户标识")
+    if (isinstance(payload["aud"], list) and len(payload["aud"]) > 1 and payload.get("azp") != cfg.client_id) or ("azp" in payload and payload["azp"] != cfg.client_id):
+        raise ValueError("ID Token azp 与 Client ID 不一致")
     return payload
+
+
+def normalize_claims(cfg, claims):
+    if getattr(cfg,"protocol","oidc")=="oauth2":
+        from app.services.oauth2_service import normalize
+        return normalize(cfg,claims)
+    from app.services.oauth2_service import field
+    normalized=dict(claims)
+    for target,source in (("sub",getattr(cfg,"claim_sub",None) or "sub"),
+                          ("name",getattr(cfg,"claim_name",None) or "name"),
+                          ("email",getattr(cfg,"claim_email",None) or "email")):
+        value=field(claims,source)
+        if target=="sub" and (not isinstance(value,str) or not value.strip()):
+            raise ValueError("唯一账号标识字段无效")
+        if source!=target or target in claims:
+            normalized[target]=value.strip() if isinstance(value,str) else ""
+    return normalized
 
 
 def map_claims(claims: dict[str, Any], defs: list[Any] | None = None) -> dict[str, Any]:
@@ -349,7 +409,7 @@ async def provision_or_bind(
         ep = await db.scalar(select(EmployeeProfile).where(EmployeeProfile.sso_sub == str(sub)))
         if ep:
             user = await db.get(User, ep.user_id)
-    if user is None and email:
+    if user is None and email and cfg.bind_rule == "email":
         user = await db.scalar(select(User).where(User.email == email, User.deleted_at.is_(None)))
 
     if user is None:

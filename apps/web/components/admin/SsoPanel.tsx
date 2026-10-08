@@ -1,202 +1,126 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { http } from "@/lib/api";
+import { applyDecPreset, oauthDefaults, ssoPayload } from "@/lib/sso-config";
 
-/** SSO（企业统一身份登录）配置面板：标准 OIDC 授权码 + PKCE。
- *  社区 = SP，企业客户应用中台 = IDP。一套部署对接一家企业客户。 */
+const input = "w-full rounded-md border border-[#d0d7de] bg-white px-3 py-2 text-[13px] text-[#24292f] outline-none focus:border-[#0969da] focus:ring-2 focus:ring-[#0969da]/15 disabled:bg-[#f6f8fa]";
+const card = "rounded-lg border border-[#d0d7de] bg-white p-4";
+const secondary = "rounded-md border border-[#d0d7de] bg-white px-3 py-1.5 text-[13px] text-[#24292f] hover:bg-[#f6f8fa] disabled:opacity-60";
+function Field({title,hint,children}:{title:string;hint?:string;children:ReactNode}) {
+  return <label className="block min-w-0 space-y-1.5"><span className="block text-[12px] font-medium text-[#24292f]">{title}</span>{children}{hint&&<span className="block text-[12px] leading-relaxed text-[#656d76]">{hint}</span>}</label>;
+}
+function Section({title,description,children}:{title:string;description?:string;children:ReactNode}) {
+  return <section className={card}><h3 className="text-[15px] font-semibold">{title}</h3>{description&&<p className="mt-1 text-[12px] leading-relaxed text-[#656d76]">{description}</p>}<div className="mt-4">{children}</div></section>;
+}
+
+/** Extends the existing admin form; one active enterprise connection per deployment. */
 export function SsoPanel() {
-  const [cfg, setCfg] = useState<any>(null);
-  const [secret, setSecret] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [testing, setTesting] = useState(false);
-  const [testResult, setTestResult] = useState<any>(null);
-  const [error, setError] = useState("");
-
-  useEffect(() => {
-    http.get("/admin/sso/config").then(setCfg).catch((e) => setError(e.message || "加载失败"));
-  }, []);
-
-  const set = (patch: any) => setCfg({ ...cfg, ...patch });
-
-  const save = async () => {
-    setSaving(true);
-    setError("");
+  const [cfg,setCfg]=useState<any>(null);
+  const [secret,setSecret]=useState("");
+  const [busy,setBusy]=useState<"save"|"test"|null>(null);
+  const [error,setError]=useState("");
+  const [notice,setNotice]=useState("");
+  const [result,setResult]=useState<any>(null);
+  const load=()=>http.get("/admin/sso/config").then(setCfg).catch(e=>setError(e.message||"加载失败"));
+  useEffect(()=>{void load();},[]);
+  const set=(patch:any)=>{setCfg((old:any)=>({...old,...patch}));setResult(null);setNotice("");};
+  const opt={...oauthDefaults,...cfg?.oauth_options};
+  const option=(patch:any)=>set({oauth_options:{...opt,...patch}});
+  const oauth=cfg?.protocol==="oauth2";
+  const text=(key:string,placeholder="")=><input className={input} value={cfg[key]||""} onChange={e=>set({[key]:e.target.value})} placeholder={placeholder}/>;
+  const optText=(key:string,placeholder="")=><input className={input} value={opt[key]||""} onChange={e=>option({[key]:e.target.value})} placeholder={placeholder}/>;
+  const choose=(key:string,choices:[string,string][],onChange?:(v:string)=>void)=><select className={input} value={opt[key]} onChange={e=>onChange?onChange(e.target.value):option({[key]:e.target.value})}>{choices.map(([value,label])=><option key={value} value={value}>{label}</option>)}</select>;
+  const run=async(action:"save"|"test")=>{
+    setBusy(action);setError("");setNotice("");setResult(null);
     try {
-      await http.put("/admin/sso/config", {
-        enabled: !!cfg.enabled,
-        label: cfg.label || null,
-        issuer: cfg.issuer || null,
-        client_id: cfg.client_id || null,
-        client_secret: secret || null,
-        authorization_endpoint: cfg.authorization_endpoint || null,
-        token_endpoint: cfg.token_endpoint || null,
-        jwks_uri: cfg.jwks_uri || null,
-        userinfo_endpoint: cfg.userinfo_endpoint || null,
-        scopes: cfg.scopes || null,
-        bind_rule: cfg.bind_rule || "email",
-        auto_provision: !!cfg.auto_provision,
-        extract_employee: !!cfg.extract_employee,
-        claim_sub: cfg.claim_sub || null,
-        claim_email: cfg.claim_email || null,
-        claim_name: cfg.claim_name || null,
-      });
-      setSecret("");
-      alert("SSO 配置已保存");
-    } catch (e: any) {
-      setError(e.message || "保存失败");
-    } finally {
-      setSaving(false);
-    }
+      const payload=ssoPayload(cfg,secret);
+      if(action==="save") {setCfg(await http.put("/admin/sso/config",payload));setSecret("");setNotice("SSO 配置已保存");}
+      else setResult(await http.post("/admin/sso/config/test",payload));
+    } catch(e:any) {setError(e.message||"操作失败，请重试");}
+    finally {setBusy(null);}
   };
-
-  const test = async () => {
-    setTesting(true);
-    setError("");
-    try {
-      const r: any = await http.post("/admin/sso/config/test", {
-        issuer: cfg.issuer || null,
-        client_id: cfg.client_id || null,
-        client_secret: secret || null,
-        authorization_endpoint: cfg.authorization_endpoint || null,
-        token_endpoint: cfg.token_endpoint || null,
-        jwks_uri: cfg.jwks_uri || null,
-        userinfo_endpoint: cfg.userinfo_endpoint || null,
-      });
-      setTestResult(r);
-    } catch (e: any) {
-      setTestResult({ ok: false, message: e.message || "测试失败", details: null });
-    } finally {
-      setTesting(false);
-    }
-  };
-
-  const copyRedirect = async () => {
-    try {
-      await navigator.clipboard.writeText(cfg.redirect_uri || "");
-      alert("回调地址已复制");
-    } catch {
-      alert("复制失败，请手动复制");
-    }
-  };
-
-  if (!cfg) {
-    return <div className="rounded-lg border border-[#d0d7de] bg-white p-6 text-[13px] text-[#656d76]">加载中…</div>;
-  }
-
-  return (
-    <div className="space-y-6">
-      <div className="rounded-lg border border-[#d0d7de] bg-white p-4">
-        <div className="mb-3 flex items-center justify-between">
-          <h3 className="text-[15px] font-semibold">企业统一身份登录（SSO / OIDC）</h3>
-          <label className="flex items-center gap-2 text-[13px]">
-            <input type="checkbox" checked={!!cfg.enabled} onChange={(e) => set({ enabled: e.target.checked })} className="h-4 w-4" />
-            <span className={cfg.enabled ? "font-medium text-[#1a7f37]" : "text-[#656d76]"}>启用（登录页显示企业统一登录入口）</span>
-          </label>
+  if(!cfg) return <div className={card}>{error?<><p className="text-[13px] text-[#cf222e]">{error}</p><button className={`${secondary} mt-3`} onClick={load}>重新加载</button></>:<p className="text-[13px] text-[#656d76]">加载中…</p>}</div>;
+  return <div className="space-y-4">
+    <fieldset disabled={!!busy} className="min-w-0 space-y-4 disabled:opacity-75">
+      <Section title="企业统一身份登录" description="配置企业身份服务，员工可使用企业账号登录社区。当前部署使用一套生效配置。">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <label className="flex items-center gap-2 text-[13px]"><input type="checkbox" checked={!!cfg.enabled} onChange={e=>set({enabled:e.target.checked})} className="h-4 w-4 accent-[#0969da]"/>启用 SSO 登录入口</label>
+          <button className={secondary} onClick={()=>{set(applyDecPreset(cfg));setNotice("已填入东方电气文档预设，尚未保存。请核对应用 ID、用户信息地址中的 client_id 和账号标识。退出地址需客户确认后填写。");}}>使用东方电气预设</button>
         </div>
-        <p className="mb-4 text-[12px] leading-relaxed text-[#656d76]">
-          社区作为服务提供方（SP），对接企业客户统一身份提供方（IDP），采用标准 OIDC 授权码 + PKCE 流程。
-          一套部署只对接一家企业客户。员工通过企业账号首次登录自动开通社区账号（免注册），
-          员工扩展信息（部门/职位等）由 SSO 携带的 claims 映射 + 大模型按事实抽取（杜绝猜测，可追溯）。
-        </p>
-
-        <div className="mb-3 rounded-md border border-[#d0d7de] bg-[#f6f8fa] px-3 py-2">
-          <div className="text-[12px] text-[#656d76]">回调地址 Redirect URI（需配置到企业 IDP 的授权回调白名单）</div>
-          <div className="mt-1 flex items-center gap-2">
-            <code className="min-w-0 flex-1 truncate font-mono text-[13px] text-[#0969da]">{cfg.redirect_uri}</code>
-            <button onClick={copyRedirect} className="shrink-0 rounded-md border border-[#d0d7de] px-2 py-1 text-[12px] text-[#24292f] hover:bg-[#eaeef2]">
-              复制
-            </button>
-          </div>
+        <div className="mt-4 grid gap-4 md:grid-cols-2">
+          <Field title="认证协议"><select className={input} value={cfg.protocol} onChange={e=>set({protocol:e.target.value,scopes:e.target.value==="oauth2"?"":"openid profile email"})}><option value="oidc">OpenID Connect（OIDC）</option><option value="oauth2">OAuth 2.0（授权码）</option></select></Field>
+          <Field title="登录按钮名称">{text("label","企业统一身份登录")}</Field>
         </div>
+        <p className="mt-3 text-[12px] text-[#656d76]">{oauth?"通过授权码换取 Access Token，再从指定接口或 Token 响应中读取用户信息。":"校验 ID Token 的签名、Issuer、Audience 和 Nonce，并使用 PKCE 保护授权码。"}</p>
+      </Section>
 
-        <div className="grid grid-cols-2 gap-3">
-          <div className="col-span-2">
-            <label className="mb-1 block text-[12px] text-[#656d76]">IDP Issuer URL（自动发现 OIDC 端点，如 https://sso.corp.com）</label>
-            <input value={cfg.issuer || ""} onChange={(e) => set({ issuer: e.target.value })} placeholder="https://企业应用中台地址" className="w-full rounded border border-[#d0d7de] px-2 py-1.5 font-mono text-sm" />
-          </div>
-          <div>
-            <label className="mb-1 block text-[12px] text-[#656d76]">Client ID（企业 IDP 颁发）</label>
-            <input value={cfg.client_id || ""} onChange={(e) => set({ client_id: e.target.value })} className="w-full rounded border border-[#d0d7de] px-2 py-1.5 font-mono text-sm" />
-          </div>
-          <div>
-            <label className="mb-1 block text-[12px] text-[#656d76]">Client Secret（AES 加密存储，留空保持不变）</label>
-            <input type="password" value={secret} onChange={(e) => setSecret(e.target.value)} placeholder={cfg.has_client_secret ? "已配置（如需更换请重新输入）" : "未配置"} className="w-full rounded border border-[#d0d7de] px-2 py-1.5 font-mono text-sm" />
-          </div>
-          <div>
-            <label className="mb-1 block text-[12px] text-[#656d76]">Scopes</label>
-            <input value={cfg.scopes || ""} onChange={(e) => set({ scopes: e.target.value })} placeholder="openid profile email" className="w-full rounded border border-[#d0d7de] px-2 py-1.5 font-mono text-sm" />
-          </div>
-          <div>
-            <label className="mb-1 block text-[12px] text-[#656d76]">账号绑定规则</label>
-            <select value={cfg.bind_rule || "email"} onChange={(e) => set({ bind_rule: e.target.value })} className="w-full rounded border border-[#d0d7de] px-2 py-1.5 text-sm">
-              <option value="email">按邮箱匹配（email 一致即绑定已有账号）</option>
-              <option value="sub">按 IDP 唯一标识匹配（sub）</option>
-            </select>
-          </div>
-          <div>
-            <label className="mb-1 block text-[12px] text-[#656d76]">登录页按钮文案</label>
-            <input value={cfg.label || ""} onChange={(e) => set({ label: e.target.value })} className="w-full rounded border border-[#d0d7de] px-2 py-1.5 text-sm" />
-          </div>
-          <div className="flex items-end gap-4 pb-1">
-            <label className="flex items-center gap-2 text-[13px]">
-              <input type="checkbox" checked={!!cfg.auto_provision} onChange={(e) => set({ auto_provision: e.target.checked })} className="h-4 w-4" />
-              首登自动开通账号（免注册）
-            </label>
-            <label className="flex items-center gap-2 text-[13px]">
-              <input type="checkbox" checked={!!cfg.extract_employee} onChange={(e) => set({ extract_employee: e.target.checked })} className="h-4 w-4" />
-              员工扩展信息 AI 抽取
-            </label>
-          </div>
-          <div>
-            <label className="mb-1 block text-[12px] text-[#656d76]">OIDC 端点（可选，不填则由 Issuer 自动发现）</label>
-            <div className="grid grid-cols-2 gap-2">
-              <input value={cfg.authorization_endpoint || ""} onChange={(e) => set({ authorization_endpoint: e.target.value })} placeholder="authorization_endpoint" className="w-full rounded border border-[#d0d7de] px-2 py-1.5 font-mono text-[12px]" />
-              <input value={cfg.token_endpoint || ""} onChange={(e) => set({ token_endpoint: e.target.value })} placeholder="token_endpoint" className="w-full rounded border border-[#d0d7de] px-2 py-1.5 font-mono text-[12px]" />
-              <input value={cfg.jwks_uri || ""} onChange={(e) => set({ jwks_uri: e.target.value })} placeholder="jwks_uri" className="w-full rounded border border-[#d0d7de] px-2 py-1.5 font-mono text-[12px]" />
-              <input value={cfg.userinfo_endpoint || ""} onChange={(e) => set({ userinfo_endpoint: e.target.value })} placeholder="userinfo_endpoint" className="w-full rounded border border-[#d0d7de] px-2 py-1.5 font-mono text-[12px]" />
-            </div>
-          </div>
+      <Section title="应用凭据与回调" description="应用凭据由客户身份平台分配；Client Secret 加密存储，保存后不显示明文。">
+        <div className="mb-4 rounded-md border border-[#d0d7de] bg-[#f6f8fa] p-3">
+          <div className="text-[12px] text-[#656d76]">回调地址 Redirect URI · 请登记到身份平台的回调白名单</div>
+          <div className="mt-2 flex items-start gap-3"><code className="min-w-0 flex-1 break-all text-[13px] text-[#0969da]">{cfg.redirect_uri}</code><button className={secondary} onClick={async()=>{try {await navigator.clipboard.writeText(cfg.redirect_uri);setNotice("回调地址已复制");}catch {setError("复制失败，请手动复制回调地址");}}}>复制</button></div>
         </div>
-
-        <div className="mt-3 rounded-md border border-[#eaeef2] bg-[#f6f8fa] px-3 py-2">
-          <div className="mb-1 text-[12px] text-[#656d76]">claims 字段名映射（不同 IDP 命名可能不同，可调整）</div>
-          <div className="grid grid-cols-3 gap-2">
-            <input value={cfg.claim_sub || ""} onChange={(e) => set({ claim_sub: e.target.value })} placeholder="sub（唯一标识）" className="w-full rounded border border-[#d0d7de] px-2 py-1 font-mono text-[12px]" />
-            <input value={cfg.claim_email || ""} onChange={(e) => set({ claim_email: e.target.value })} placeholder="email（邮箱）" className="w-full rounded border border-[#d0d7de] px-2 py-1 font-mono text-[12px]" />
-            <input value={cfg.claim_name || ""} onChange={(e) => set({ claim_name: e.target.value })} placeholder="name（姓名）" className="w-full rounded border border-[#d0d7de] px-2 py-1 font-mono text-[12px]" />
-          </div>
+        <div className="grid gap-4 md:grid-cols-2">
+          <Field title="Client ID">{text("client_id")}</Field>
+          <Field title="Client Secret" hint="留空保留已保存的密钥。"><input type="password" autoComplete="new-password" className={input} value={secret} onChange={e=>{setSecret(e.target.value);setResult(null);}} placeholder={cfg.has_client_secret?"已配置，输入新值可替换":"尚未配置"}/></Field>
         </div>
-      </div>
+      </Section>
 
-      {error && <div className="rounded-md bg-[#ffebe9] px-3 py-2 text-[13px] text-[#cf222e]">{error}</div>}
-
-      {testResult && (
-        <div className={`rounded-lg border px-4 py-3 ${testResult.ok ? "border-[#d0d7de] bg-[#f6f8fa]" : "border-[#ffcecb] bg-[#ffebe9]"}`}>
-          <div className={`text-[13px] font-medium ${testResult.ok ? "text-[#1a7f37]" : "text-[#cf222e]"}`}>
-            {testResult.ok ? "✅ " : "❌ "}{testResult.message}
-          </div>
-          {testResult.details && (
-            <div className="mt-2 grid grid-cols-2 gap-1 font-mono text-[12px] text-[#57606a]">
-              {Object.entries(testResult.details).map(([k, v]) => (
-                <div key={k}>
-                  <span className="text-[#656d76]">{k}: </span>
-                  {String(v)}
-                </div>
-              ))}
-            </div>
-          )}
+      <Section title="认证接口" description={oauth?"填写企业提供的完整 HTTPS 接口地址。":"Issuer 用于验证令牌签发者；端点可显式填写，缺少时通过 Issuer 自动发现。"}>
+        <div className="grid gap-4 md:grid-cols-2">
+          {!oauth&&<div className="md:col-span-2"><Field title="Issuer URL">{text("issuer","https://sso.example.com")}</Field></div>}
+          <Field title="授权地址 Authorize URI">{text("authorization_endpoint","https://sso.example.com/authorize")}</Field>
+          <Field title="Token 地址 Token URI">{text("token_endpoint","https://sso.example.com/token")}</Field>
+          {!oauth&&<Field title="JWKS 地址">{text("jwks_uri")}</Field>}
+          <Field title="Scope" hint={oauth?"按客户要求填写，允许留空。":"通常填写 openid profile email。"}>{text("scopes")}</Field>
         </div>
-      )}
+        {oauth&&<details className="mt-4 rounded-md border border-[#d0d7de] bg-[#f6f8fa] p-3"><summary className="cursor-pointer text-[13px] font-medium text-[#0969da]">高级请求参数</summary>
+          <div className="mt-4 grid gap-4 md:grid-cols-3">
+            <Field title="Token 请求方式">{choose("token_method",[["POST","POST"],["GET","GET"],["PUT","PUT"]],value=>option({token_method:value,...(value==="GET"?{token_mode:"query"}:{})}))}</Field>
+            <Field title="Token 传参方式">{choose("token_mode",opt.token_method==="GET"?[["query","Query"]]:[["form","Form"],["query","Query"],["json","Body（JSON）"]])}</Field>
+            <Field title="客户端认证">{choose("token_auth",[["parameters","通过请求参数"],["basic","Authorization: Basic"]])}</Field>
+          </div>
+          <label className="mt-4 flex items-center gap-2 text-[13px]"><input type="checkbox" checked={opt.pkce} onChange={e=>option({pkce:e.target.checked})} className="h-4 w-4 accent-[#0969da]"/>启用 PKCE S256（身份平台支持时开启）</label>
+          <p className="mt-2 text-[12px] text-[#656d76]">State 校验始终启用。Query 可能包含凭据，部署时应避免代理记录完整请求地址。</p>
+          <div className="mt-4 grid gap-4 md:grid-cols-2">{(["authorize_params","token_params"] as const).map(group=><div key={group}><h4 className="mb-2 text-[12px] font-medium">{group==="authorize_params"?"授权请求参数名":"Token 请求参数名"}</h4><div className="space-y-2">{(group==="authorize_params"?["client_id","redirect_uri","response_type","scope","state"]:["client_id","client_secret","grant_type","code","redirect_uri"]).map(key=><label key={key} className="flex items-center gap-2 text-[12px]"><span className="w-28 shrink-0 font-mono text-[#656d76]">{key}</span><input aria-label={`${group}.${key}`} className={input} value={opt[group]?.[key]??key} onChange={e=>option({[group]:{...opt[group],[key]:e.target.value}})}/></label>)}</div></div>)}</div>
+        </details>}
+      </Section>
 
-      <div className="flex gap-3">
-        <button onClick={save} disabled={saving || testing} className="rounded-md bg-[#0969da] px-4 py-2 text-sm text-white hover:bg-[#0550ae] disabled:opacity-60">
-          {saving ? "保存中…" : "保存配置"}
-        </button>
-        <button onClick={test} disabled={testing || saving} className="rounded-md border border-[#d0d7de] px-4 py-2 text-sm text-[#24292f] hover:bg-[#eaeef2] disabled:opacity-60">
-          {testing ? "测试中…" : "测试连接（不保存）"}
-        </button>
-      </div>
-    </div>
-  );
+      <Section title="用户信息与身份映射" description="唯一账号标识用于稳定识别同一用户；用户名和姓名用于展示，不应随意替代唯一标识。">
+        <div className="grid gap-4 md:grid-cols-2">
+          {oauth&&<Field title="用户信息来源">{choose("userinfo_source",[["endpoint","单独请求用户信息接口"],["token","从 Token 响应中读取"]])}</Field>}
+          {(!oauth||opt.userinfo_source==="endpoint")&&<Field title="用户信息地址 UserInfo URI" hint={oauth?"需要固定 client_id 等参数时，可追加在地址的查询参数中。":undefined}>{text("userinfo_endpoint")}</Field>}
+          {oauth&&opt.userinfo_source==="endpoint"&&<>
+            <Field title="用户信息请求方式">{choose("userinfo_method",[["GET","GET"],["POST","POST"],["PUT","PUT"]],value=>option({userinfo_method:value,...(value==="GET"&&!['query','bearer'].includes(opt.userinfo_mode)?{userinfo_mode:"query"}:{})}))}</Field>
+            <Field title="Access Token 传递方式">{choose("userinfo_mode",opt.userinfo_method==="GET"?[["bearer","Authorization: Bearer"],["query","Query"]]:[["bearer","Authorization: Bearer"],["query","Query"],["form","Form"],["json","Body（JSON）"]])}</Field>
+            {opt.userinfo_mode!=="bearer"&&<Field title="Access Token 参数名">{optText("access_token_param")}</Field>}
+          </>}
+          {oauth&&<Field title="用户信息对象路径" hint="根对象留空；嵌套对象例如 data.user。">{optText("userinfo_path","例如 data.user")}</Field>}
+          <Field title="唯一账号标识字段" hint={oauth?"例如 uid、loginName；应由客户确认稳定且唯一。":"通常使用已验证的 sub。"}>{text("claim_sub","sub")}</Field>
+          {oauth&&<Field title="账号标识格式" hint="单值数组模式遇到空数组或多个值时拒绝登录。">{choose("subject_mode",[["string","字符串"],["single_array","严格单值数组"]])}</Field>}
+          {oauth&&<Field title="用户名字段">{optText("claim_username")}</Field>}
+          <Field title="姓名字段">{text("claim_name")}</Field>
+          <Field title="邮箱字段">{text("claim_email")}</Field>
+          {oauth&&<Field title="手机字段">{optText("claim_mobile")}</Field>}
+        </div>
+        {oauth&&cfg.claim_sub==="spRoleList"&&<p className="mt-4 rounded-md border border-[#d0d7de] bg-[#f6f8fa] p-3 text-[12px] leading-relaxed text-[#656d76]">东方电气 Word 将 spRoleList 描述为应用账号主键。当前按单值数组处理；请通过客户说明及脱敏响应核实，确认前不要直接改用其他字段或取数组第一项。</p>}
+      </Section>
+
+      <Section title="账号与退出" description="首次开通的账号默认为普通会员。后续权限在社区用户管理中分配。">
+        <div className="grid gap-4 md:grid-cols-2">
+          <Field title="账号绑定规则"><select className={input} value={cfg.bind_rule} onChange={e=>set({bind_rule:e.target.value})}><option value="sub">按唯一账号标识绑定</option><option value="email">按邮箱匹配已有账号</option></select></Field>
+          <Field title="退出地址 Logout URI" hint="可选。仅企业登录会话在本地退出后跳转；请填写客户确认的完整 HTTPS 地址。">{optText("logout_url")}</Field>
+        </div>
+        <div className="mt-4 flex flex-wrap gap-4 text-[13px]">
+          <label className="flex items-center gap-2"><input type="checkbox" checked={!!cfg.auto_provision} onChange={e=>set({auto_provision:e.target.checked})} className="h-4 w-4 accent-[#0969da]"/>首次登录自动开通账号</label>
+          <label className="flex items-center gap-2"><input type="checkbox" checked={!!cfg.extract_employee} onChange={e=>set({extract_employee:e.target.checked})} className="h-4 w-4 accent-[#0969da]"/>员工扩展信息 AI 抽取</label>
+        </div>
+        <p className="mt-3 text-[12px] text-[#656d76]">{cfg.bind_rule==="email"?"邮箱匹配会绑定已有账号，请确认身份平台返回的邮箱可信。":"按唯一标识绑定时，不会因邮箱相同自动合并已有账号。"} 退出跳转不等于完整单点注销或已签发会话的即时撤销。</p>
+      </Section>
+    </fieldset>
+    {notice&&<div role="status" className="rounded-md border border-[#d0d7de] bg-[#f6f8fa] px-3 py-2 text-[13px] text-[#1a7f37]">{notice}</div>}
+    {error&&<div role="alert" className="rounded-md bg-[#ffebe9] px-3 py-2 text-[13px] text-[#cf222e]">{error}</div>}
+    {result&&<div role="status" className={`rounded-lg border px-4 py-3 text-[13px] ${result.ok?"border-[#d0d7de] bg-[#f6f8fa] text-[#1a7f37]":"border-[#ffcecb] bg-[#ffebe9] text-[#cf222e]"}`}><p className="font-medium">{result.message}</p>{result.details&&<dl className="mt-2 space-y-1 text-[12px] text-[#656d76]">{Object.entries(result.details).map(([key,value])=><div key={key} className="flex flex-wrap gap-2"><dt>{key}</dt><dd>{String(value)}</dd></div>)}</dl>}</div>}
+    <div className="flex flex-wrap gap-3"><button onClick={()=>run("save")} disabled={!!busy} className="rounded-md bg-[#0969da] px-4 py-2 text-sm text-white hover:bg-[#0550ae] disabled:opacity-60">{busy==="save"?"保存中…":"保存配置"}</button><button className={secondary} onClick={()=>run("test")} disabled={!!busy}>{busy==="test"?"检查中…":"检查配置（不保存）"}</button></div>
+  </div>;
 }

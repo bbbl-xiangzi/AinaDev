@@ -13,6 +13,7 @@ export function getToken(): string | null {
 }
 
 export function setAuth(token: string, user: any) {
+  localStorage.removeItem("community_auth_source");
   localStorage.setItem(TOKEN_KEY, token);
   localStorage.setItem(USER_KEY, JSON.stringify(user));
 }
@@ -28,6 +29,7 @@ export function getStoredUser(): any | null {
 }
 
 export function clearAuth() {
+  localStorage.removeItem("community_auth_source");
   localStorage.removeItem(TOKEN_KEY);
   localStorage.removeItem(USER_KEY);
 }

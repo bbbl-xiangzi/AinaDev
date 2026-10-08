@@ -2,6 +2,8 @@
 from datetime import datetime
 
 from pydantic import BaseModel
+from typing import Literal
+from app.schemas.sso_options import OAuthOptions
 
 
 # ---------- 模型配置 ----------
@@ -170,6 +172,8 @@ class StatsOut(BaseModel):
 
 # ---------- SSO（企业统一身份登录） ----------
 class SsoConfigIn(BaseModel):
+    protocol: Literal["oidc", "oauth2"] | None = None
+    oauth_options: OAuthOptions | None = None
     enabled: bool = False
     label: str | None = None
     issuer: str | None = None
@@ -189,6 +193,7 @@ class SsoConfigIn(BaseModel):
 
 
 class SsoConfigOut(BaseModel):
+    oauth_options: OAuthOptions
     id: int
     enabled: bool
     label: str

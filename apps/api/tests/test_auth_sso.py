@@ -37,6 +37,9 @@ class RedisDouble:
     async def delete(self, key):
         self.values.pop(key, None)
 
+    async def getdel(self, key):
+        return self.values.pop(key,None)
+
     async def enqueue_job(self, name, *args):
         if self.fail_enqueue:
             raise ConnectionError("queue unavailable")
@@ -70,13 +73,14 @@ class SsoCallbackTests(unittest.IsolatedAsyncioTestCase):
         self.enterContext(patch.object(auth_sso.settings, "public_base_url", "https://community.example"))
 
     async def login_and_callback(self):
-        login = await auth_sso.sso_login(db=self.db)
+        login = await auth_sso.sso_login(db=self.db, login_attempt="browser-attempt-12345")
         self.assertEqual(login.status_code, 302)
         params = parse_qs(urlsplit(login.headers["location"]).query)
         state = params["state"][0]
         response = await auth_sso.sso_callback(code="test-code", state=state, db=self.db)
         self.assertEqual(response.status_code, 302)
         tokens = parse_qs(urlsplit(response.headers["location"]).fragment)
+        self.assertEqual(tokens["attempt"], ["browser-attempt-12345"])
         self.assertEqual(decode_token(tokens["token"][0])["sub"], "42")
         self.assertEqual(decode_token(tokens["refresh"][0], "refresh")["sub"], "42")
         self.assertNotIn("test-id-token", response.headers["location"])
@@ -120,12 +124,44 @@ class SsoCallbackTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.redis.jobs, [])
 
     async def test_failed_identity_verification_is_not_treated_as_optional(self):
-        self.redis.values["sso:auth:state:valid-state"] = b"verifier|nonce"
+        self.redis.values["sso:auth:state:valid-state"] = ("verifier|nonce|browser-attempt-12345|"+auth_sso.config_fingerprint(self.cfg)).encode()
         with patch.object(sso_service, "verify_id_token", AsyncMock(side_effect=ValueError("invalid signature"))):
             with self.assertRaises(HTTPException) as caught:
                 await auth_sso.sso_callback(code="test-code", state="valid-state", db=self.db)
         self.assertEqual(caught.exception.status_code, 400)
         self.assertEqual(self.redis.jobs, [])
+
+    async def test_oauth_callback_accepts_access_token_without_id_token(self):
+        self.cfg.protocol="oauth2"
+        self.cfg.oauth_options={"subject_mode":"single_array"}
+        self.cfg.claim_sub="spRoleList"
+        self.cfg.claim_name="displayName"
+        self.cfg.claim_email="mail"
+        self.claims={"sub":"person-1","name":"张三","email":"","preferred_username":"","mobile":""}
+        with patch.object(sso_service,"exchange_token",AsyncMock(return_value={"access_token":"upstream","uid":"u1"})), \
+             patch.object(sso_service,"fetch_userinfo",AsyncMock(return_value={"spRoleList":["person-1"],"displayName":"张三","uid":"u1","otpKey":"never-store"})):
+            await self.login_and_callback()
+        self.assertEqual(self.redis.jobs[0][1][1],self.claims)
+        sso_service.verify_id_token.assert_not_awaited()
+
+    async def test_mid_login_config_switch_is_rejected(self):
+        login=await auth_sso.sso_login(db=self.db,login_attempt="browser-attempt-12345")
+        state=parse_qs(urlsplit(login.headers["location"]).query)["state"][0]
+        self.cfg.protocol="oauth2"
+        with self.assertRaises(HTTPException):
+            await auth_sso.sso_callback(code="code",state=state,db=self.db)
+        sso_service.exchange_token.assert_not_awaited()
+
+    async def test_oauth_multiple_subjects_do_not_provision_user(self):
+        self.cfg.protocol="oauth2"
+        self.cfg.oauth_options={"subject_mode":"single_array","userinfo_source":"token","userinfo_path":"user"}
+        self.cfg.claim_sub="spRoleList"
+        login=await auth_sso.sso_login(db=self.db,login_attempt="browser-attempt-12345")
+        state=parse_qs(urlsplit(login.headers["location"]).query)["state"][0]
+        with patch.object(sso_service,"exchange_token",AsyncMock(return_value={"access_token":"upstream","user":{"spRoleList":["a","b"]}})):
+            with self.assertRaises(HTTPException):
+                await auth_sso.sso_callback(code="code",state=state,db=self.db)
+        sso_service.provision_or_bind.assert_not_awaited()
 
 
 if __name__ == "__main__":

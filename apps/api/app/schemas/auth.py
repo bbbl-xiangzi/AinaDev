@@ -127,6 +127,7 @@ class EmployeeOut(BaseModel):
 
 
 class SsoStatusOut(BaseModel):
+    logout_url: str | None = None
     """前台登录页：是否启用企业统一身份登录（不回传任何敏感配置）。"""
 
     enabled: bool = False

@@ -22,8 +22,9 @@ class SsoConfig(Base):
     enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     # 登录页按钮文案，如「企业统一身份登录」
     label: Mapped[str] = mapped_column(String(100), default="企业统一身份登录", server_default="企业统一身份登录")
-    # 协议：固定 oidc（授权码 + PKCE + RS256）
+    # 协议：oidc / oauth2
     protocol: Mapped[str] = mapped_column(String(20), default="oidc", server_default="oidc")
+    oauth_options: Mapped[dict] = mapped_column(JSON, default=dict, server_default="{}")
     # IDP 信息（二选一：填 issuer 自动发现端点；或显式填端点覆盖）
     issuer: Mapped[str | None] = mapped_column(String(500), nullable=True)
     client_id: Mapped[str] = mapped_column(String(500), default="", server_default="")

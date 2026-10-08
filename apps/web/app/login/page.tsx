@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth";
 import { http } from "@/lib/api";
+import { newSsoAttempt } from "@/lib/sso";
 
 export default function LoginPage() {
   const { login, register } = useAuth();
@@ -18,6 +19,9 @@ export default function LoginPage() {
   const [sso, setSso] = useState<{ enabled: boolean; label: string }>({ enabled: false, label: "企业统一身份登录" });
 
   useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("sso_error") === "1") {
+      setError("企业登录结果验证失败，请重新登录或联系管理员。");
+    }
     http
       .get("/auth/sso/status")
       .then((r: any) => setSso({ enabled: !!r.enabled, label: r.label || "企业统一身份登录" }))
@@ -40,7 +44,9 @@ export default function LoginPage() {
   };
 
   const ssoLogin = () => {
-    window.location.href = "/api/auth/sso/login";
+    const attempt = newSsoAttempt();
+    sessionStorage.setItem("community_sso_attempt", attempt);
+    window.location.href = `/api/auth/sso/login?login_attempt=${encodeURIComponent(attempt)}`;
   };
 
   return (
