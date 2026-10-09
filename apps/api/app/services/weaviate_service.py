@@ -1,113 +1,104 @@
-"""Weaviate 独立向量库服务（应用侧生成向量后写入；集合 vectorizer=NONE）。"""
+"""Weaviate REST/GraphQL transport: all cross-host traffic uses HTTP(S)."""
+import json
 import logging
-from typing import Any
+import re
+import uuid
 
+import httpx
 from app.config import settings
 
 logger = logging.getLogger(__name__)
 
-_client = None
+
+def _client():
+    scheme = "https" if settings.weaviate_secure else "http"
+    headers = {"Authorization": f"Bearer {settings.weaviate_api_key}"} if settings.weaviate_api_key else {}
+    return httpx.AsyncClient(base_url=f"{scheme}://{settings.weaviate_host}:{settings.weaviate_http_port}",
+                             headers=headers, timeout=60, follow_redirects=False)
 
 
-def get_client():
-    """懒加载 Weaviate 客户端。"""
-    global _client
-    if _client is None:
-        import weaviate
-        from weaviate.classes.init import AdditionalConfig, Auth, Timeout
-        from weaviate.classes.query import Filter
-
-        try:
-            _client = weaviate.connect_to_custom(
-                http_host=settings.weaviate_host,
-                http_port=settings.weaviate_http_port,
-                http_secure=False,
-                grpc_host=settings.weaviate_host,
-                grpc_port=settings.weaviate_grpc_port,
-                grpc_secure=False,
-                additional_config=AdditionalConfig(
-                    timeout=Timeout(init=30, query=60, insert=60),
-                ),
-            )
-        except Exception as exc:
-            logger.warning("Weaviate connect failed: %s", exc)
-            _client = None
-    return _client
+def _name():
+    name = settings.weaviate_collection
+    if not re.fullmatch(r"[A-Z][A-Za-z0-9_]*", name):
+        raise ValueError("Invalid Weaviate collection name")
+    return name
 
 
-def _collection():
-    client = get_client()
-    if client is None:
-        return None
-    try:
-        return client.collections.get(settings.weaviate_collection)
-    except Exception:
-        return None
-
-
-def _filter_eq(prop: str, value: Any):
-    from weaviate.classes.query import Filter
-
-    return Filter.by_property(prop).equal(value)
-
-
-async def upsert_chunk(chunk_id: int, document_id: int, category_id: int, chunk_index: int, title, content: str, filename: str, vector: list[float]) -> None:
-    """写入/更新一个切片的向量与元数据。"""
-    col = _collection()
-    if col is None:
-        logger.warning("weaviate 不可用，跳过写入 chunk %s", chunk_id)
+async def _ensure_collection(client):
+    name = _name()
+    response = await client.get(f"/v1/schema/{name}")
+    if response.status_code != 404:
+        response.raise_for_status()
         return
-    import uuid
+    props = [{"name": key, "dataType": ["int"]} for key in
+             ("chunk_id", "document_id", "category_id", "chunk_index")]
+    props += [{"name": key, "dataType": ["text"]} for key in ("title", "content", "filename")]
+    response = await client.post("/v1/schema", json={
+        "class": name, "vectorizer": "none", "properties": props,
+        "vectorIndexConfig": {"distance": "cosine"},
+    })
+    if response.status_code in (409, 422):
+        # API and worker may create the collection concurrently.
+        response = await client.get(f"/v1/schema/{name}")
+    response.raise_for_status()
 
-    obj_uuid = uuid.uuid5(uuid.NAMESPACE_URL, f"ainadev-chunk-{chunk_id}")
-    props = {
-        "chunk_id": int(chunk_id),
-        "document_id": int(document_id),
-        "category_id": int(category_id),
-        "chunk_index": int(chunk_index),
-        "title": title or "",
-        "content": content[:20000],
-        "filename": filename,
-    }
-    try:
-        col.data.insert(uuid=obj_uuid, properties=props, vector=vector)
-    except Exception as exc:
-        logger.warning("weaviate upsert failed: %s", exc)
+
+async def upsert_chunk(chunk_id: int, document_id: int, category_id: int, chunk_index: int,
+                       title, content: str, filename: str, vector: list[float]) -> None:
+    obj_uuid = str(uuid.uuid5(uuid.NAMESPACE_URL, f"ainadev-chunk-{chunk_id}"))
+    props = {"chunk_id": int(chunk_id), "document_id": int(document_id),
+             "category_id": int(category_id), "chunk_index": int(chunk_index),
+             "title": title or "", "content": content[:20000], "filename": filename}
+    body = {"class": _name(), "id": obj_uuid, "properties": props, "vector": vector}
+    async with _client() as client:
+        await _ensure_collection(client)
+        response = await client.put(f"/v1/objects/{_name()}/{obj_uuid}", json=body)
+        if response.status_code == 404:
+            response = await client.post("/v1/objects", json=body)
+        response.raise_for_status()
 
 
 async def search_vectors(category_id: int, qvec: list[float], top: int = 20) -> list[tuple[int, float]]:
-    """向量检索，返回 [(chunk_id, 相似度)]。"""
-    col = _collection()
-    if col is None:
-        return []
-    from weaviate.classes.query import Filter
-
     try:
-        res = col.query.near_vector(
-            near_vector=qvec,
-            filters=Filter.by_property("category_id").equal(category_id),
-            limit=top,
-            return_properties=["chunk_id"],
-        )
-        out: list[tuple[int, float]] = []
-        for obj in res.objects:
-            cid = obj.properties.get("chunk_id")
-            if cid is None:
-                continue
-            sim = 1.0 - float(obj.metadata.distance)
-            out.append((int(cid), sim))
-        return out
-    except Exception as exc:
-        logger.warning("weaviate search failed: %s", exc)
+        return await _search_vectors(category_id, qvec, top)
+    except (httpx.HTTPError, RuntimeError, KeyError, TypeError, ValueError):
+        logger.warning("Weaviate search unavailable; using keyword retrieval")
         return []
+
+
+async def _search_vectors(category_id: int, qvec: list[float], top: int) -> list[tuple[int, float]]:
+    vector = json.dumps(qvec, allow_nan=False)
+    query = ('{ Get { ' + _name() + '(nearVector: {vector: ' + vector + '}, '
+             'where: {path: ["category_id"], operator: Equal, valueInt: ' + str(int(category_id)) + '}, '
+             'limit: ' + str(max(1, min(int(top), 1000))) + ') { chunk_id _additional { distance } } } }')
+    async with _client() as client:
+        response = await client.post("/v1/graphql", json={"query": query})
+        response.raise_for_status()
+        data = response.json()
+        if data.get("errors"):
+            raise RuntimeError("Weaviate vector query failed")
+        rows = data["data"]["Get"][_name()]
+        return [(int(row["chunk_id"]), 1.0 - float(row["_additional"]["distance"])) for row in rows]
 
 
 async def delete_document_chunks(document_id: int) -> None:
-    """删除某文档的全部向量（重建/删除文档时调用）。"""
-    col = _collection()
-    if col is None:
-        return
-    try:
-        col.data.delete_many(where=_filter_eq("document_id", document_id))
-    except Exception as exc:
-        logger.warning("weaviate delete failed: %s", exc)
+    async with _client() as client:
+        # Batch deletion is capped server-side; repeat until no matches remain.
+        while True:
+            response = await client.request("DELETE", "/v1/batch/objects", json={
+                "match": {"class": _name(), "where": {"path": ["document_id"],
+                          "operator": "Equal", "valueInt": int(document_id)}},
+                "output": "minimal", "dryRun": False,
+            })
+            if response.status_code == 404:
+                return
+            response.raise_for_status()
+            results = response.json().get("results", {})
+            if results.get("failed", 0):
+                raise RuntimeError("Weaviate chunk deletion failed")
+            matches = results.get("matches", 0)
+            successful = results.get("successful", 0)
+            if matches <= successful:
+                return
+            if not successful:
+                raise RuntimeError("Weaviate chunk deletion made no progress")

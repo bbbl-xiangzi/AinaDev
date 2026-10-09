@@ -1,5 +1,6 @@
 """管理：RAG 知识库（上传文件 / URL / 列表 / 删除 / 重建 / 启停）。"""
-import shutil
+import asyncio
+from app.services import file_storage
 import uuid
 from pathlib import Path
 
@@ -50,16 +51,12 @@ async def upload_document(
 
     # 存储到隔离目录 data/rag_docs（不挂在 /uploads 静态目录，防内部资料公开）；
     # 文件名使用 uuid（不使用用户文件名，防路径穿越）
-    rag_root = Path(settings.rag_docs_dir)
-    rag_root.mkdir(parents=True, exist_ok=True)
     stored_name = f"rag_{uuid.uuid4().hex}{ext}"
-    dest = rag_root / stored_name
-    with dest.open("wb") as f:
-        shutil.copyfileobj(file.file, f)
+    storage_path = await asyncio.to_thread(file_storage.save, "rag", stored_name, file.file)
 
     doc = RagDocument(
         category_id=category_id, filename=file.filename or "unnamed", file_type=file_type,
-        storage_path=f"data/rag_docs/{stored_name}", uploader_id=admin.id, status="parsing",
+        storage_path=storage_path, uploader_id=admin.id, status="parsing",
     )
     db.add(doc)
     await db.commit()
@@ -140,14 +137,7 @@ async def download_document(doc_id: int, admin: User = Depends(require_super_adm
         raise HTTPException(status_code=404, detail="文档不存在")
     if doc.file_type == "url":
         return RedirectResponse(url=doc.storage_path or "/")
-    # 新文档存 data/rag_docs；兼容旧的 uploads 相对路径
-    path = Path(doc.storage_path or "")
-    if not path.exists():
-        alt = Path(settings.upload_dir) / doc.storage_path
-        path = alt if alt.exists() else path
-    if not path.exists():
-        raise HTTPException(status_code=404, detail="文件不存在或已被清理")
-    return FileResponse(path=str(path), filename=doc.filename or path.name)
+    return await asyncio.to_thread(file_storage.private_response, doc.storage_path or "", doc.filename or "document")
 
 
 @router.get("/{doc_id}/chunks")
