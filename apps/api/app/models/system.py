@@ -1,7 +1,7 @@
 """系统级模型：模型配置、资讯源、站点配置。"""
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Integer, String, Text, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, JSON, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import Base
@@ -31,7 +31,8 @@ class AiNewsSource(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(200))
-    type: Mapped[str] = mapped_column(Enum("rss", "api", "manual", name="news_source_type"), default="rss")
+    type: Mapped[str] = mapped_column(String(20), default="rss")
+    config: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     url: Mapped[str] = mapped_column(String(1000))
     target_category_id: Mapped[int | None] = mapped_column(ForeignKey("categories.id"), nullable=True)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
