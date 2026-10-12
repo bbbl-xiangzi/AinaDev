@@ -88,8 +88,8 @@ async def get_site_config(admin: User = Depends(require_super_admin), db: AsyncS
     defaults = {
         "site_name": settings.site_name, "site_description": settings.site_description,
         "mcp_api_key": settings.mcp_api_key,
-        "upload_allowed_types": "png,jpg,jpeg,gif,webp,pdf,doc,docx,xls,xlsx,txt,md,csv,zip",
-        "upload_max_size_mb": "10",
+        "upload_allowed_types": "png,jpg,jpeg,gif,webp,pdf,doc,docx,xls,xlsx,txt,md,csv,zip,mp4,webm",
+        "upload_max_size_mb": "100",
         "review_prompt": "",
     }
     for k, v in defaults.items():
@@ -113,8 +113,8 @@ async def update_site_config(body: SiteConfigIn, admin: User = Depends(require_s
         "smtp_port": settings.smtp_port, "smtp_user": settings.smtp_user,
         "smtp_password": settings.smtp_password, "smtp_from": settings.smtp_from,
         "invite_expire_days": settings.invite_expire_days,
-        "upload_allowed_types": "png,jpg,jpeg,gif,webp,pdf,doc,docx,xls,xlsx,txt,md,csv,zip",
-        "upload_max_size_mb": "10",
+        "upload_allowed_types": "png,jpg,jpeg,gif,webp,pdf,doc,docx,xls,xlsx,txt,md,csv,zip,mp4,webm",
+        "upload_max_size_mb": "100",
         "review_prompt": "",
     }
     data = body.model_dump(exclude_unset=True)

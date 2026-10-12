@@ -15,6 +15,7 @@ import zh_Hans from "bytemd/locales/zh_Hans.json";
 import gfmZh from "@bytemd/plugin-gfm/locales/zh_Hans.json";
 import "bytemd/dist/index.css";
 import { http } from "@/lib/api";
+import { isUploadedVideo } from "@/lib/video";
 
 type Props = {
   value?: string;
@@ -94,6 +95,22 @@ export function BytemdEditor({ value = "", onChange, placeholder = "内容…", 
       gfm({ locale: gfmZh }),
       highlight(),
       {
+        viewerEffect({ markdownBody }: { markdownBody: HTMLElement }) {
+          markdownBody.querySelectorAll("a").forEach((link) => {
+            const url = link.getAttribute("href") || "";
+            if (!isUploadedVideo(url)) return;
+            const video = document.createElement("video");
+            video.src = url;
+            video.controls = true;
+            video.playsInline = true;
+            video.preload = "metadata";
+            video.setAttribute("aria-label", link.textContent || "视频");
+            video.style.cssText = "display:block;max-width:100%;max-height:480px;border:1px solid #d0d7de;border-radius:8px;background:black;margin:8px 0";
+            link.replaceWith(video);
+          });
+        },
+      },
+      {
         actions: [
           {
             title: "上传附件",
@@ -104,7 +121,7 @@ export function BytemdEditor({ value = "", onChange, placeholder = "内容…", 
                 // 隐藏 input 选择任意类型文件，上传后在光标处插入 Markdown 链接
                 const input = document.createElement("input");
                 input.type = "file";
-                input.accept = ".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.md,.csv,.zip,.rar,.7z,.png,.jpg,.jpeg,.gif,.webp";
+                input.accept = ".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.md,.csv,.zip,.rar,.7z,.png,.jpg,.jpeg,.gif,.webp,.mp4,.webm";
                 input.onchange = async () => {
                   const file = input.files?.[0];
                   if (!file) return;

@@ -2,6 +2,8 @@
 
 import { useRef, useState } from "react";
 import { http } from "@/lib/api";
+import { VideoPlayer } from "./VideoPlayer";
+import { isUploadedVideo } from "@/lib/video";
 
 export type AttachmentItem = {
   name: string;
@@ -18,7 +20,7 @@ export function AttachmentUploader({
   attachments,
   onChange,
   max = 9,
-  accept = ".png,.jpg,.jpeg,.gif,.webp,.pdf,.doc,.docx,.xls,.xlsx,.txt,.md,.csv,.zip",
+  accept = ".png,.jpg,.jpeg,.gif,.webp,.pdf,.doc,.docx,.xls,.xlsx,.txt,.md,.csv,.zip,.mp4,.webm",
 }: {
   attachments: AttachmentItem[];
   onChange: (list: AttachmentItem[]) => void;
@@ -71,7 +73,7 @@ export function AttachmentUploader({
           {uploading ? "上传中…" : "+ 添加附件"}
         </button>
         <input ref={inputRef} type="file" multiple accept={accept} className="hidden" onChange={pick} />
-        <span className="text-[12px] text-[#656d76]">{attachments.length}/{max} · 支持图片/文档/压缩包</span>
+        <span className="text-[12px] text-[#656d76]">{attachments.length}/{max} · 支持图片/视频/文档/压缩包</span>
       </div>
 
       {attachments.length > 0 && (
@@ -101,7 +103,9 @@ export function AttachmentList({ items }: { items: AttachmentItem[] }) {
   return (
     <div className="mt-3 flex flex-wrap gap-2">
       {items.map((a, i) =>
-        a.type === "image" ? (
+        isUploadedVideo(a.url) ? (
+          <VideoPlayer key={i} url={a.url} name={a.name} />
+        ) : a.type === "image" ? (
           <a key={i} href={a.url} target="_blank" rel="noreferrer" className="block">
             <img src={a.url} alt={a.name} className="max-h-48 rounded-lg border border-[#d0d7de] object-contain" />
           </a>
