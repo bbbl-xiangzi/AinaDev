@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Sidebar } from "@/components/Sidebar";
 import { PostCard } from "@/components/PostCard";
 import { http } from "@/lib/api";
+import { HomeBanners } from "@/components/HomeBanners";
 
 function HomeInner() {
   const router = useRouter();
@@ -34,6 +35,7 @@ function HomeInner() {
     <div className="mx-auto flex max-w-[1280px] gap-8 px-4 py-6">
       <Sidebar />
       <main className="min-w-0 flex-1">
+        <HomeBanners />
         <div className="mb-4 flex items-center gap-1 border-b border-[#d0d7de]">
           {tabs.map((t) => (
             <button
