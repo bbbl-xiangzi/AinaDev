@@ -37,6 +37,7 @@ class CategoryUpdate(BaseModel):
 
 
 class CategoryOut(BaseModel):
+    can_post: bool = False
     id: int
     slug: str
     name: str

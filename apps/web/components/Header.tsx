@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/lib/auth";
 import { http } from "@/lib/api";
+import { newPostHref } from "@/lib/post-category";
 import { Avatar } from "./ui";
 
 export function Header() {
@@ -51,7 +52,7 @@ export function Header() {
         <div className="ml-auto flex items-center gap-4">
           {user ? (
             <>
-              <Link href="/new" className="rounded-md bg-[#0969da] px-3 py-1.5 text-sm font-medium text-white hover:bg-[#0550ae]">
+              <Link href={newPostHref(pathname)} className="rounded-md bg-[#0969da] px-3 py-1.5 text-sm font-medium text-white hover:bg-[#0550ae]">
                 发帖
               </Link>
               <Link href="/me" className="relative text-sm text-[#24292f] hover:text-[#0969da]">
