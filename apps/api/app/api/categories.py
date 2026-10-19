@@ -5,10 +5,23 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_db
 from app.core.deps import get_current_user, get_optional_user
-from app.models import Category, CategoryAiAdmin, Post, Subscription, User
+from app.models import Category, CategoryHumanAdmin, CategoryAiAdmin, Post, Subscription, User
 from app.schemas import CategoryOut, AiAdminBrief
 
 router = APIRouter(prefix="/api/categories", tags=["categories"])
+
+
+async def _can_post(db, cat, user):
+    if user is None or cat.deleted_at is not None:
+        return False
+    permission = cat.post_permission or "public"
+    if permission == "closed":
+        return False
+    if permission != "staff_only" or user.role == "super_admin":
+        return True
+    return await db.scalar(select(CategoryHumanAdmin.id).where(
+        CategoryHumanAdmin.category_id == cat.id, CategoryHumanAdmin.user_id == user.id
+    )) is not None
 
 
 async def _to_out(db: AsyncSession, cat: Category, user: User | None) -> CategoryOut:
@@ -35,6 +48,7 @@ async def _to_out(db: AsyncSession, cat: Category, user: User | None) -> Categor
             external_agent_name = ext.name
     return CategoryOut(
         **{k: getattr(cat, k) for k in ("id", "slug", "name", "description", "icon", "sort_order", "allow_post", "post_permission", "auto_reply_enabled", "reply_threshold", "notify_human_on_no_evidence", "external_agent_id", "relevance_check_enabled", "reply_to_author_questions")},
+        can_post=await _can_post(db, cat, user),
         post_count=post_count or 0,
         is_subscribed=is_sub,
         external_agent_name=external_agent_name,

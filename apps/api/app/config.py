@@ -1,5 +1,6 @@
 """全局配置：从环境变量 / .env 读取。"""
 from functools import lru_cache
+from typing import Literal
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -27,6 +28,8 @@ class Settings(BaseSettings):
     invite_expire_days: int = 7
     # 出站请求安全：拦截私网/回环/云元数据地址（防 SSRF）。客户若需抓内网 RSS/资讯源，设 false
     block_private_urls: bool = True
+    # Only these exact HTTPS SSO hosts may resolve to private addresses.
+    sso_allowed_hosts: str = ""
 
     # 默认模型（首次启动写入 model_configs）
     default_llm_base_url: str = "https://ark.cn-beijing.volces.com/api/v3"
@@ -49,6 +52,12 @@ class Settings(BaseSettings):
     upload_dir: str = "./uploads"
     # 知识库文档隔离目录（不挂在 /uploads 静态目录下，下载走后台鉴权接口，避免内部资料公开）
     rag_docs_dir: str = "./data/rag_docs"
+    storage_backend: Literal["local", "s3"] = "local"
+    s3_endpoint_url: str = ""
+    s3_region: str = "us-east-1"
+    s3_bucket: str = "ainadev"
+    s3_access_key: str = ""
+    s3_secret_key: str = ""
 
     # 检索后端自动适配：
     # vector_backend: numpy=JSONB+应用层余弦（Windows/无 pgvector 环境）| pgvector=SQL HNSW（生产 Linux/Docker）| weaviate=独立向量库
@@ -62,6 +71,8 @@ class Settings(BaseSettings):
     weaviate_http_port: int = 8080
     weaviate_grpc_port: int = 50051
     weaviate_collection: str = "AinaDev"
+    weaviate_api_key: str = ""
+    weaviate_secure: bool = False
 
     # 初始超管（可选，配置后首次启动自动创建；未配置则首个注册用户成为超管）
     admin_email: str = ""

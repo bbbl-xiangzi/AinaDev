@@ -1,14 +1,20 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { http } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { canPostInCategory, initialPostCategory } from "@/lib/post-category";
 import { BytemdEditor } from "@/components/BytemdEditor";
 
 export default function NewPostPage() {
+  return <Suspense fallback={null}><NewPostForm /></Suspense>;
+}
+
+function NewPostForm() {
   const { user } = useAuth();
   const router = useRouter();
+  const requestedCategory = useSearchParams().get("category_id");
   const [cats, setCats] = useState<any[]>([]);
   const [categoryId, setCategoryId] = useState<number>(0);
   const [title, setTitle] = useState("");
@@ -30,11 +36,14 @@ export default function NewPostPage() {
       router.push("/login");
       return;
     }
+    let cancelled = false;
     http.get("/categories").then((d) => {
+      if (cancelled) return;
       setCats(d);
-      if (d.length) setCategoryId(d[0].id);
-    });
-  }, [user, router]);
+      setCategoryId(initialPostCategory(d, requestedCategory, user.role));
+    }).catch((err) => { if (!cancelled) setError(err.message || "栏目加载失败"); });
+    return () => { cancelled = true; };
+  }, [user, router, requestedCategory]);
 
   useEffect(() => {
     if (title || body) {
@@ -66,10 +75,10 @@ export default function NewPostPage() {
       <form onSubmit={submit} className="space-y-4">
         <div className="flex gap-3">
           <select value={categoryId} onChange={(e) => setCategoryId(Number(e.target.value))} className="rounded-md border border-[#d0d7de] bg-white px-3 py-2 text-sm outline-none focus:border-[#0969da]">
+            {!categoryId && <option value={0} disabled>请选择栏目</option>}
             {cats.map((c) => {
               const perm = c.post_permission || (c.allow_post ? "public" : "closed");
-              const isAdmin = user?.role === "super_admin";
-              const disabled = perm === "closed" || (perm === "staff_only" && !isAdmin);
+              const disabled = !canPostInCategory(c, user?.role);
               const suffix = perm === "staff_only" ? "（仅管理员）" : perm === "closed" ? "（关闭）" : "";
               return (
                 <option key={c.id} value={c.id} disabled={disabled}>

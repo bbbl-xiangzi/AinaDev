@@ -1,5 +1,7 @@
 """RAG 服务：文档解析、切片、embedding、混合检索。"""
+import asyncio
 import re
+from app.services.file_storage import document_path
 from pathlib import Path
 
 import trafilatura
@@ -29,26 +31,30 @@ async def parse_document(path: str | None, url: str | None, file_type: str, orig
             raise ValueError("URL 未提取到正文")
         return text_content
 
-    if not path or not Path(path).exists():
+    if not path:
         raise ValueError("文件不存在")
+    return await asyncio.to_thread(_parse_file, path, file_type)
 
-    if file_type == "pdf":
-        from pypdf import PdfReader
 
-        reader = PdfReader(path)
-        parts = [page.extract_text() or "" for page in reader.pages]
-        return "\n\n".join(parts)
+def _parse_file(path: str, file_type: str) -> str:
+    with document_path(path) as local_path:
+        if file_type == "pdf":
+            from pypdf import PdfReader
 
-    if file_type == "docx":
-        import docx
+            reader = PdfReader(local_path)
+            parts = [page.extract_text() or "" for page in reader.pages]
+            return "\n\n".join(parts)
 
-        doc = docx.Document(path)
-        return "\n\n".join(p.text for p in doc.paragraphs if p.text.strip())
+        if file_type == "docx":
+            import docx
 
-    if file_type in ("md", "txt"):
-        return Path(path).read_text(encoding="utf-8", errors="ignore")
+            doc = docx.Document(local_path)
+            return "\n\n".join(p.text for p in doc.paragraphs if p.text.strip())
 
-    raise ValueError(f"不支持的文件类型: {file_type}")
+        if file_type in ("md", "txt"):
+            return Path(local_path).read_text(encoding="utf-8", errors="ignore")
+
+        raise ValueError(f"不支持的文件类型: {file_type}")
 
 
 # ---------- 切片 ----------
@@ -121,7 +127,7 @@ async def embed_and_store_chunks(
             title=(titles[i] if titles else None),
             content=chunk,
             embedding=vec,
-            metadata={"filename": doc.filename, "chunk_index": i},
+            meta_data={"filename": doc.filename, "chunk_index": i},
         )
         db.add(row)
         await db.flush()

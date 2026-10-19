@@ -22,6 +22,9 @@ class Category(Base):
     auto_reply_enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
     reply_threshold: Mapped[float] = mapped_column(Float, default=0.7, server_default="0.7")
     notify_human_on_no_evidence: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+    external_agent_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    relevance_check_enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    reply_to_author_questions: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
