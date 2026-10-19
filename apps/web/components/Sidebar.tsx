@@ -1,11 +1,19 @@
 "use client";
 
+import { useAuth } from "@/lib/auth";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { http } from "@/lib/api";
 import { usePathname, useSearchParams } from "next/navigation";
 
 export function Sidebar() {
+  const { user } = useAuth();
+  const [pages, setPages] = useState<{ slug: string; title: string }[]>([]);
+  useEffect(() => {
+    let active = true; setPages([]);
+    if (user) http.get("/sdk-pages").then(p => { if (active) setPages(p); }).catch(() => {});
+    return () => { active = false; };
+  }, [user?.id]);
   const [cats, setCats] = useState<any[]>([]);
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -21,6 +29,7 @@ export function Sidebar() {
 
   return (
     <nav className="w-[220px] shrink-0 space-y-6">
+      {user && pages.map(p => <Link key={p.slug} href={`/sdk/${p.slug}`} className={`flex items-center gap-2 rounded-md px-2 py-1.5 text-sm ${pathname === `/sdk/${p.slug}` ? "bg-[#0969da]/10 font-medium text-[#0969da]" : "text-[#24292f] hover:bg-[#eaeef2]"}`}><span>💬</span>{p.title}</Link>)}
       <div>
         <div className="mb-2 px-2 text-[13px] font-semibold text-[#656d76]">浏览</div>
         <ul className="space-y-0.5">

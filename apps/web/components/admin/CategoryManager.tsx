@@ -23,6 +23,8 @@ export function CategoryManager() {
   const [iconPickerFor, setIconPickerFor] = useState<"edit" | "create" | null>(null);
   const [externalAgents, setExternalAgents] = useState<any[]>([]);
   const [msg, setMsg] = useState("");
+  const [createError, setCreateError] = useState("");
+  const [createPending, setCreatePending] = useState(false);
 
   const reload = async () => {
     const list: Cat[] = await http.get("/admin/categories");
@@ -52,12 +54,26 @@ export function CategoryManager() {
   };
 
   const createCategory = async () => {
-    if (!creating) return;
-    if (!creating.name || !creating.slug) return alert("名称和 slug 必填");
-    await http.post("/admin/categories", { ...creating, reply_threshold: Number(creating.reply_threshold) });
-    setCreating(null);
-    setMsg("已创建");
-    reload();
+    if (!creating || createPending) return;
+    const name = creating.name.trim();
+    const slug = creating.slug.trim();
+    setCreateError("");
+    if (!name) { setCreateError("请输入栏目名称"); return; }
+    if (!/^[a-z0-9-]{2,64}$/.test(slug)) {
+      setCreateError("URL 标识需为 2–64 位小写字母、数字或短横线，例如 tech-share");
+      return;
+    }
+    setCreatePending(true);
+    try {
+      await http.post("/admin/categories", { ...creating, name, slug, reply_threshold: Number(creating.reply_threshold) });
+      setCreating(null);
+      setMsg("已创建");
+      try { await reload(); } catch { setMsg("已创建，列表刷新失败，请刷新页面"); }
+    } catch (error) {
+      setCreateError(error instanceof Error ? error.message : "创建失败，请稍后重试");
+    } finally {
+      setCreatePending(false);
+    }
   };
 
   const saveAiAdmin = async () => {
@@ -82,7 +98,7 @@ export function CategoryManager() {
 
       <div className="flex justify-end">
         <button
-          onClick={() => setCreating({ id: 0, slug: "", name: "", description: "", icon: "📁", sort_order: 0, allow_post: true, post_permission: "public", auto_reply_enabled: true, reply_threshold: 0.5, notify_human_on_no_evidence: true })}
+          onClick={() => { setCreateError(""); setCreating({ id: 0, slug: "", name: "", description: "", icon: "📁", sort_order: 0, allow_post: true, post_permission: "public", auto_reply_enabled: true, reply_threshold: 0.5, notify_human_on_no_evidence: true }); }}
           className="rounded-md bg-[#0969da] px-4 py-2 text-[13px] text-white hover:bg-[#0550ae]"
         >
           + 新建栏目
@@ -213,7 +229,7 @@ export function CategoryManager() {
       </Modal>
 
       {/* 新建栏目（模态） */}
-      <Modal open={!!creating} title="新建栏目" width={560} onClose={() => setCreating(null)}>
+      <Modal open={!!creating} title="新建栏目" width={560} onClose={() => { if (!createPending) setCreating(null); }}>
         {creating && (
           <div className="space-y-3">
             <div className="grid grid-cols-3 gap-3">
@@ -223,7 +239,7 @@ export function CategoryManager() {
               </div>
               <div>
                 <label className="mb-1 block text-[12px] text-[#656d76]">slug（URL 标识）</label>
-                <input value={creating.slug} onChange={(e) => setCreating({ ...creating, slug: e.target.value })} className="w-full rounded border border-[#d0d7de] px-2 py-1.5 text-sm" />
+                <input value={creating.slug} maxLength={64} placeholder="tech-share" onChange={(e) => setCreating({ ...creating, slug: e.target.value })} className="w-full rounded border border-[#d0d7de] px-2 py-1.5 text-sm" />
               </div>
               <div>
                 <label className="mb-1 block text-[12px] text-[#656d76]">图标</label>
@@ -254,9 +270,10 @@ export function CategoryManager() {
               </select>
             </div>
             <div className="flex justify-end gap-2 pt-2">
-              <button onClick={() => setCreating(null)} className="rounded border border-[#d0d7de] px-3 py-1.5 text-[13px]">取消</button>
-              <button onClick={createCategory} className="rounded-md bg-[#0969da] px-3 py-1.5 text-[13px] text-white">创建</button>
+              <button disabled={createPending} onClick={() => setCreating(null)} className="rounded border border-[#d0d7de] px-3 py-1.5 text-[13px] disabled:opacity-50">取消</button>
+              <button disabled={createPending} onClick={createCategory} className="rounded-md bg-[#0969da] px-3 py-1.5 text-[13px] text-white disabled:opacity-50">{createPending ? "创建中…" : "创建"}</button>
             </div>
+            {createError && <div role="alert" className="rounded-md border border-[#ff8182] bg-[#ffebe9] px-3 py-2 text-[13px] text-[#cf222e]">{createError}</div>}
           </div>
         )}
       </Modal>
