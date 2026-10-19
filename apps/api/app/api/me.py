@@ -1,3 +1,6 @@
+import asyncio
+import io
+from app.services import file_storage
 """个人中心 + 通知 API。"""
 import uuid
 from datetime import datetime, timezone
@@ -148,15 +151,13 @@ async def upload_avatar(
     ext = (file.filename or "").rsplit(".", 1)[-1].lower() if "." in (file.filename or "") else ""
     if ext not in {"png", "jpg", "jpeg", "gif", "webp"}:
         raise HTTPException(status_code=400, detail="仅支持 png/jpg/jpeg/gif/webp 图片")
-    content = await file.read()
+    content = await file.read(2 * 1024 * 1024 + 1)
     if len(content) > 2 * 1024 * 1024:
         raise HTTPException(status_code=400, detail="头像不能超过 2MB")
     now = datetime.now(timezone.utc)
     rel_dir = Path(f"avatar/{now:%Y%m}")
-    abs_dir = Path(settings.upload_dir).resolve() / rel_dir
-    abs_dir.mkdir(parents=True, exist_ok=True)
     stored = f"{uuid.uuid4().hex}.{ext}"
-    (abs_dir / stored).write_bytes(content)
+    await asyncio.to_thread(file_storage.save, "uploads", f"{rel_dir.as_posix()}/{stored}", io.BytesIO(content))
     user.avatar_url = f"/uploads/{rel_dir.as_posix()}/{stored}"
     await db.commit()
     return {"avatar_url": user.avatar_url}

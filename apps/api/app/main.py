@@ -41,6 +41,7 @@ async def init_db_and_seed() -> None:
         await conn.run_sync(Base.metadata.create_all)
         # 轻量迁移：categories 加 post_permission 列（老库）
         from sqlalchemy import text
+        await conn.execute(text("ALTER TABLE sso_configs ADD COLUMN IF NOT EXISTS oauth_options JSON NOT NULL DEFAULT '{}'"))
         await conn.execute(text("ALTER TABLE categories ADD COLUMN IF NOT EXISTS post_permission VARCHAR(20) NOT NULL DEFAULT 'public'"))
         await conn.execute(text("UPDATE categories SET post_permission='closed' WHERE allow_post=false AND post_permission='public'"))
         # ai_news_sources 加 config 列（老库）+ type 从 enum 改成 varchar
@@ -110,10 +111,11 @@ async def init_db_and_seed() -> None:
                         account_type="human", role="super_admin", status="active",
                     )
                 )
-                logger.warning(
-                    "created super admin from env: %s（未配置 ADMIN_PASSWORD，已生成随机密码：%s，请立即保存并登录修改）",
-                    admin_email, admin_pwd,
-                )
+                if not getattr(settings, "admin_password", ""):
+                    logger.warning(
+                        "created super admin from env: %s（未配置 ADMIN_PASSWORD，已生成随机密码：%s，请立即保存并登录修改）",
+                        admin_email, admin_pwd,
+                    )
         await db.commit()
 
     # 5) ticket 默认奖励配置
@@ -153,11 +155,18 @@ app.add_middleware(
 # 附件静态目录（生产经 nginx /uploads/ 反代）
 from pathlib import Path
 
-_upload_dir = Path(settings.upload_dir).resolve()
-_upload_dir.mkdir(parents=True, exist_ok=True)
-from fastapi.staticfiles import StaticFiles
+if settings.storage_backend == "s3":
+    from app.services.file_storage import public_response
 
-app.mount("/uploads", StaticFiles(directory=str(_upload_dir)), name="uploads")
+    @app.get("/uploads/{object_path:path}", include_in_schema=False)
+    def stored_attachment(object_path: str, request: Request):
+        return public_response(object_path, request.headers.get("range"))
+else:
+    from fastapi.staticfiles import StaticFiles
+
+    _upload_dir = Path(settings.upload_dir).resolve()
+    _upload_dir.mkdir(parents=True, exist_ok=True)
+    app.mount("/uploads", StaticFiles(directory=str(_upload_dir)), name="uploads")
 
 
 @app.middleware("http")

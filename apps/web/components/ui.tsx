@@ -3,16 +3,24 @@
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
+import rehypeRaw from "rehype-raw";
+import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import "highlight.js/styles/github-dark.css";
+import { isUploadedVideo } from "@/lib/video";
+import { VideoPlayer } from "./VideoPlayer";
 
 export function MarkdownView({ content, className = "" }: { content: string; className?: string }) {
   return (
     <div className={`md-body ${className}`}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
-        rehypePlugins={[[rehypeHighlight, { ignoreMissing: true }]]}
+        rehypePlugins={[rehypeRaw, [rehypeSanitize, {
+          ...defaultSchema,
+          attributes: { ...defaultSchema.attributes, td: [...(defaultSchema.attributes?.td || []), "colSpan", "rowSpan"], th: [...(defaultSchema.attributes?.th || []), "colSpan", "rowSpan"] },
+        }], [rehypeHighlight, { ignoreMissing: true }]]}
         components={{
           a: ({ href, children }) => {
+            if (isUploadedVideo(href)) return <VideoPlayer url={href!} name={String(children || "视频")} />;
             const isExternal = href && /^https?:\/\//i.test(href);
             return (
               <a href={href} {...(isExternal ? { target: "_blank", rel: "noopener noreferrer" } : {})}>

@@ -1,7 +1,9 @@
 """Pydantic schemas：管理侧（模型配置/知识库/资讯源/审核/审计）。"""
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+from typing import Literal
+from app.schemas.sso_options import OAuthOptions
 
 
 # ---------- 模型配置 ----------
@@ -152,7 +154,7 @@ class SiteConfigIn(BaseModel):
     smtp_from: str | None = None
     invite_expire_days: int | None = None
     upload_allowed_types: str | None = None   # 逗号分隔，如 "png,jpg,pdf"
-    upload_max_size_mb: int | None = None     # 单文件大小上限 MB
+    upload_max_size_mb: int | None = Field(default=None, ge=1, le=500)     # 单文件大小上限 MB
     review_prompt: str | None = None          # AI 内容审核提示词（后台可编辑）
     logo_url: str | None = None               # 站点 LOGO 图片 URL
 
@@ -170,6 +172,8 @@ class StatsOut(BaseModel):
 
 # ---------- SSO（企业统一身份登录） ----------
 class SsoConfigIn(BaseModel):
+    protocol: Literal["oidc", "oauth2"] | None = None
+    oauth_options: OAuthOptions | None = None
     enabled: bool = False
     label: str | None = None
     issuer: str | None = None
@@ -189,6 +193,7 @@ class SsoConfigIn(BaseModel):
 
 
 class SsoConfigOut(BaseModel):
+    oauth_options: OAuthOptions
     id: int
     enabled: bool
     label: str

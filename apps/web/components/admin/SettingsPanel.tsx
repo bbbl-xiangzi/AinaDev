@@ -21,10 +21,26 @@ export function SettingsPanel() {
         upload_allowed_types: site.upload_allowed_types || null,
         upload_max_size_mb: site.upload_max_size_mb ? Number(site.upload_max_size_mb) : null,
         review_prompt: site.review_prompt || null,
+        logo_url: site.logo_url || "",
       });
       alert("已保存（MCP 令牌修改后需更新豆包工作配置；审核提示词修改后立即生效）");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const uploadLogo = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const fd = new FormData();
+    fd.append("file", file);
+    try {
+      const r: any = await http.upload("/uploads", fd);
+      if (r.url) {
+        setSite({ ...site, logo_url: r.url });
+      }
+    } catch (err: any) {
+      alert("上传失败：" + (err.message || err));
     }
   };
 
@@ -42,6 +58,18 @@ export function SettingsPanel() {
             <input value={site.site_description || ""} onChange={(e) => setSite({ ...site, site_description: e.target.value })} className="w-full rounded border border-[#d0d7de] px-2 py-1.5 text-sm" />
           </div>
           <div>
+            <label className="mb-1 block text-[12px] text-[#656d76]">站点 LOGO</label>
+            <div className="flex items-center gap-3">
+              {site.logo_url && (
+                <img src={site.logo_url} alt="logo" className="h-8 w-auto rounded border border-[#d0d7de] bg-white p-1" />
+              )}
+              <input type="file" accept="image/png,image/jpeg,image/gif,image/webp" onChange={uploadLogo} className="text-[12px]" />
+              {site.logo_url && (
+                <button onClick={() => setSite({ ...site, logo_url: "" })} className="text-[12px] text-[#cf222e] hover:underline">移除</button>
+              )}
+            </div>
+          </div>
+          <div>
             <label className="mb-1 block text-[12px] text-[#656d76]">MCP 访问令牌</label>
             <input value={site.mcp_api_key || ""} onChange={(e) => setSite({ ...site, mcp_api_key: e.target.value })} className="w-full rounded border border-[#d0d7de] px-2 py-1.5 font-mono text-sm" />
           </div>
@@ -51,7 +79,7 @@ export function SettingsPanel() {
           </div>
           <div>
             <label className="mb-1 block text-[12px] text-[#656d76]">单文件大小上限（MB）</label>
-            <input type="number" min={1} max={100} value={site.upload_max_size_mb || ""} onChange={(e) => setSite({ ...site, upload_max_size_mb: e.target.value })} className="w-full rounded border border-[#d0d7de] px-2 py-1.5 text-sm" />
+            <input type="number" min={1} max={500} value={site.upload_max_size_mb || ""} onChange={(e) => setSite({ ...site, upload_max_size_mb: e.target.value })} className="w-full rounded border border-[#d0d7de] px-2 py-1.5 text-sm" />
           </div>
         </div>
       </div>

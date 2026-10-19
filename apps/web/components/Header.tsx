@@ -13,6 +13,8 @@ export function Header() {
   const pathname = usePathname();
   const [unread, setUnread] = useState(0);
   const [q, setQ] = useState("");
+  const [site, setSite] = useState<{site_name?: string; logo_url?: string}>({});
+  useEffect(() => { http.get("/admin/site-config-public").then(setSite).catch(() => {}); }, []);
 
   // 用户或路由变化时重新拉取未读数（进入「我的」后 read-all 会清零）
   useEffect(() => {
@@ -32,8 +34,8 @@ export function Header() {
   return (
     <header className="sticky top-0 z-40 border-b border-[#d0d7de] bg-[#f6f8fa]/95 backdrop-blur">
       <div className="mx-auto flex h-14 max-w-[1280px] items-center gap-4 px-4">
-        <Link href="/" className="text-[17px] font-bold text-[#24292f]">
-          <span className="text-[#0969da]">◆</span> AI 开发者社区
+        <Link href="/" className="flex items-center gap-2 text-[17px] font-bold text-[#24292f]">
+          {site.logo_url ? <img src={site.logo_url} alt={site.site_name || "logo"} className="h-7 w-auto" /> : <span className="text-[#0969da]">◆</span>} {site.site_name || "AI 开发者社区"}
         </Link>
         <form
           className="ml-2 hidden flex-1 sm:block"
