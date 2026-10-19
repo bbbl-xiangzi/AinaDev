@@ -1,4 +1,5 @@
 "use client";
+import { AnnouncementCard } from "@/components/AnnouncementCard";
 
 import { useEffect, useState, Suspense } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
@@ -302,10 +303,7 @@ function PostInner() {
         </div>
       </main>
       <aside className="hidden w-[280px] shrink-0 space-y-4 lg:block">
-        <div className="rounded-lg border border-[#d0d7de] bg-white p-4">
-          <div className="mb-2 text-[13px] font-semibold text-[#656d76]">公告</div>
-          <p className="text-[13px] text-[#24292f]">欢迎使用 AI 原生开发者社区</p>
-        </div>
+        <AnnouncementCard />
       </aside>
     </div>
   );

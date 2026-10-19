@@ -19,6 +19,9 @@ from app.api.posts import router as posts
 from app.api.uploads import router as uploads
 from app.api.users import router as users
 
+from app.api.sdk_pages import router as sdk_pages
+
 api_router = APIRouter()
+api_router.include_router(sdk_pages)
 for r in [auth, auth_sso, categories, posts, me, users, uploads, admin_categories, admin_external_agents, admin_models, admin_rag, admin_news, admin_reviews, admin_sso, admin_users, admin_system, admin_tickets]:
     api_router.include_router(r)

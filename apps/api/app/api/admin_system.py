@@ -88,9 +88,10 @@ async def get_site_config(admin: User = Depends(require_super_admin), db: AsyncS
     defaults = {
         "site_name": settings.site_name, "site_description": settings.site_description,
         "mcp_api_key": settings.mcp_api_key,
-        "upload_allowed_types": "png,jpg,jpeg,gif,webp,pdf,doc,docx,xls,xlsx,txt,md,csv,zip",
-        "upload_max_size_mb": "10",
+        "upload_allowed_types": "png,jpg,jpeg,gif,webp,pdf,doc,docx,xls,xlsx,txt,md,csv,zip,mp4,webm",
+        "upload_max_size_mb": "100",
         "review_prompt": "",
+        "logo_url": "",
     }
     for k, v in defaults.items():
         data.setdefault(k, str(v))
@@ -100,6 +101,20 @@ async def get_site_config(admin: User = Depends(require_super_admin), db: AsyncS
 
         data["review_prompt"] = DEFAULT_REVIEW_PROMPT
     return data
+
+
+@router.get("/site-config-public")
+async def site_config_public(db: AsyncSession = Depends(get_db)):
+    """公开接口：前端顶栏和 HTML title 用，不需要登录。"""
+    from app.config import settings
+    from app.models import SiteConfig
+    rows = list(await db.scalars(select(SiteConfig).where(SiteConfig.key.in_(["site_name", "site_description", "logo_url"]))))
+    data = {r.key: r.value for r in rows}
+    return {
+        "site_name": data.get("site_name") or settings.site_name,
+        "site_description": data.get("site_description") or settings.site_description,
+        "logo_url": data.get("logo_url") or "",
+    }
 
 
 @router.put("/site-config")
@@ -113,9 +128,10 @@ async def update_site_config(body: SiteConfigIn, admin: User = Depends(require_s
         "smtp_port": settings.smtp_port, "smtp_user": settings.smtp_user,
         "smtp_password": settings.smtp_password, "smtp_from": settings.smtp_from,
         "invite_expire_days": settings.invite_expire_days,
-        "upload_allowed_types": "png,jpg,jpeg,gif,webp,pdf,doc,docx,xls,xlsx,txt,md,csv,zip",
-        "upload_max_size_mb": "10",
+        "upload_allowed_types": "png,jpg,jpeg,gif,webp,pdf,doc,docx,xls,xlsx,txt,md,csv,zip,mp4,webm",
+        "upload_max_size_mb": "100",
         "review_prompt": "",
+        "logo_url": "",
     }
     data = body.model_dump(exclude_unset=True)
     for key, default in mapping.items():
