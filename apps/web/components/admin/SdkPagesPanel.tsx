@@ -27,7 +27,7 @@ export function SdkPagesPanel() {
             ["title", "页面名称", "智能问答"], ["slug", "页面标识（小写字母开头）", "assistant"],
             ["base_url", "平台地址", "https://agent.example.com"], ["sdk_url", "SDK 脚本地址", "https://agent.example.com/resources/product/llm/public/sdk/embedFull.js"],
             ["app_key", "浏览器端 AppKey", "应用公开标识"],
-          ] as const).map(([key, label, placeholder]) => <label key={key} className="text-sm">{label}<input required maxLength={key === "title" ? 60 : key === "slug" ? 48 : key === "app_key" ? 256 : 2048} pattern={key === "slug" ? "[a-z][a-z0-9-]{0,47}" : undefined} type={key.endsWith("url") ? "url" : "text"} value={p[key]} placeholder={placeholder} onChange={e => update(i, { [key]: e.target.value })} className="mt-1 w-full rounded border border-[#d0d7de] px-3 py-2" /></label>)}
+          ] as const).map(([key, label, placeholder]) => <label key={key} className="text-sm">{label}<input required maxLength={key === "title" ? 60 : key === "slug" ? 48 : key === "app_key" ? 256 : 2048} pattern={key === "slug" ? "[a-z](?:[a-z0-9]|-){0,47}" : undefined} type={key.endsWith("url") ? "url" : "text"} value={p[key]} placeholder={placeholder} onChange={e => update(i, { [key]: e.target.value })} className="mt-1 w-full rounded border border-[#d0d7de] px-3 py-2" /></label>)}
         </div>
         <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={p.enabled} onChange={e => update(i, { enabled: e.target.checked })} />启用页面</label>
         <p className="text-xs text-[#656d76]">入口：/sdk/{p.slug || "页面标识"}。SDK 在隔离框架运行，需支持跨域请求；不兼容的 SDK 请通过平台原站使用。</p>
