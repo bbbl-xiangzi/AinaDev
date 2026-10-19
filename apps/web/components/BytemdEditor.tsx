@@ -24,7 +24,7 @@ export function BytemdEditor(props: Props) {
     </div>
     {/* Keep mounted editors alive while switching to avoid detaching a focused
         ProseMirror/CodeMirror DOM while its selection observer is settling. */}
-    <div hidden={mode !== "markdown"}><MarkdownEditor {...shared} /></div>
+    <div hidden={mode !== "markdown"}><MarkdownEditor {...shared} active={mode === "markdown"} /></div>
     {richOpened && <div hidden={mode !== "rich"}><RichTextEditor {...shared} /></div>}
   </div>;
 }

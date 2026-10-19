@@ -7,7 +7,7 @@
  * - 内嵌 GitHub 风格 .markdown-body 样式，防止被全局 Tailwind preflight 覆盖
  */
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { Editor } from "@bytemd/react";
 import gfm from "@bytemd/plugin-gfm";
 import highlight from "@bytemd/plugin-highlight";
@@ -18,6 +18,7 @@ import { http } from "@/lib/api";
 import { isUploadedVideo } from "@/lib/video";
 
 type Props = {
+  active?: boolean;
   onBusyChange?: (busy: boolean) => void;
   value?: string;
   onChange?: (md: string) => void;
@@ -89,10 +90,21 @@ const MARKDOWN_BODY_CSS = `
 .bytemd-wrap .markdown-body .hljs { background: transparent; }
 `;
 
-export function MarkdownEditor({ value = "", onChange, placeholder = "内容…", height = 360, cacheId, onBusyChange }: Props) {
+export function MarkdownEditor({ value = "", onChange, placeholder = "内容…", height = 360, cacheId, onBusyChange, active = true }: Props) {
+  const editorRef = useRef<any>(null);
+  useEffect(() => {
+    if (!active) return;
+    // CodeMirror skips measurement while hidden; refresh after it is shown.
+    const frame = requestAnimationFrame(() => editorRef.current?.refresh());
+    return () => cancelAnimationFrame(frame);
+  }, [active, value]);
   // 插件实例保持稳定，避免每次渲染重建导致 @bytemd/react $set 抖动
   const plugins = useMemo(
     () => [
+      { editorEffect({ editor }: { editor: any }) {
+          editorRef.current = editor;
+          return () => { if (editorRef.current === editor) editorRef.current = null; };
+      } },
       gfm({ locale: gfmZh }),
       highlight(),
       {

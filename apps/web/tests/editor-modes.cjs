@@ -32,7 +32,7 @@ const assert = require('node:assert/strict');
     await page.getByRole('button',{name:'富文本',exact:true}).click();await editor.waitFor();
     await editor.press('Control+End');await editor.press('Enter');await page.keyboard.insertText('追加正文');
     await page.getByRole('button',{name:'Markdown',exact:true}).click();await page.locator('.CodeMirror').waitFor();
-    assert.match(await page.locator('.CodeMirror-code').innerText(),/追加正文/);
+    await page.locator('.CodeMirror-code').filter({hasText:'追加正文'}).waitFor();
     await page.locator('.CodeMirror').click();await page.keyboard.press('Control+End');await page.keyboard.press('Enter');await page.keyboard.insertText('Markdown新增');
     await page.getByRole('button',{name:'富文本',exact:true}).click();await editor.waitFor();
     assert.match(await editor.innerText(),/Markdown新增/);
