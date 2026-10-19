@@ -11,6 +11,10 @@ from app.services import sso_service
 
 
 class OAuthTests(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        # Protocol tests use fake HTTP endpoints; DNS policy has separate tests.
+        self.enterContext(patch("app.services.oauth2_service.is_safe_sso_url", return_value=(True, "")))
+
     def cfg(self, **options):
         return SsoConfig(protocol="oauth2", client_id="test-client", scopes="", issuer=None,
             authorization_endpoint="https://iam.example/oauth/authorize",
