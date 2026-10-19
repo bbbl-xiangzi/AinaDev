@@ -1,0 +1,23 @@
+.rich-editor { font-family: inherit; }
+.rich-toolbar { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; padding: 8px; background: #f6f8fa; border-bottom: 1px solid #d0d7de; font-size: 13px; }
+.rich-tool { border-radius: 4px; padding: 4px 7px; color: #24292f; cursor: pointer; }
+.rich-tool:hover { background: #eaeef2; }
+.rich-tool:focus-visible { outline: 2px solid #0969da; outline-offset: 1px; }
+.rich-tool:disabled { opacity: .4; cursor: default; }
+.rich-tool-active { color: #0969da; background: #ddf4ff; }
+.rich-icon-tool { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; padding: 6px; font-size: 20px; }
+.rich-icon-tool > span { display: flex; }
+.rich-editor-input { outline: none; min-height: 200px; }
+.rich-editor-input > :first-child { margin-top: 0; }
+.rich-editor-input:has(> p:only-child > br.ProseMirror-trailingBreak:only-child)::before { content: attr(data-placeholder); color: #656d76; pointer-events: none; float: left; height: 0; }
+.rich-editor-input .selectedCell { background: #ddf4ff; }
+.rich-editor-input .ProseMirror-selectednode { outline: 2px solid #0969da; }
+.rich-editor-input .tableWrapper { overflow-x: auto; }
+.rich-editor-input table { table-layout: fixed; }
+.rich-editor-input th,.rich-editor-input td { min-width: 60px; }
+
+.rich-editor-input li > p,.rich-editor-input th > p,.rich-editor-input td > p { margin: 0; }
+.rich-editor [aria-label="帖子实时预览"] .md-body > :first-child { margin-top: 0; }
+.rich-toolbar:first-child { border-radius: 8px 8px 0 0; }
+.rich-editor-input ul[data-type="taskList"] { list-style: none; padding-left: 0; }
+.rich-editor-input ul[data-type="taskList"] li { display: flex; align-items: baseline; gap: 8px; }
