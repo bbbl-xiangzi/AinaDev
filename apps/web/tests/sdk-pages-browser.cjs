@@ -34,7 +34,7 @@ const assert=require('node:assert/strict');
     assert.match(await frame.locator('[role="status"]').innerText(),/无法加载/);
     assert.equal(await page.getByRole('link',{name:'打开平台 ↗'}).getAttribute('href'),'https://agent.example');
     await page.goto(base+'/admin?tab=sdk');await page.getByLabel('启用页面',{exact:true}).uncheck();await page.getByRole('button',{name:'保存配置',exact:true}).click();await page.getByText('已保存，刷新社区导航后生效',{exact:true}).waitFor();
-    await page.goto(base+'/sdk/helper');await page.getByRole('alert').waitFor();assert.equal(await page.locator('iframe').count(),0);
+    await page.goto(base+'/sdk/helper');await page.getByText('页面不存在或已停用',{exact:true}).waitFor();assert.equal(await page.locator('iframe').count(),0);
     console.log('PASS: administrator add/save/disable, configured title/SDK/appKey, sandbox isolation, SDK load-error UI, disabled page denied');
   } finally {await browser.close()}
 })().catch(e=>{console.error(e);process.exitCode=1;});
