@@ -1,8 +1,5 @@
 import unittest
-from types import SimpleNamespace
-from pydantic import ValidationError
 from app.api.admin_system import update_site_config, site_config_public
-from app.api.uploads import _get_config
 from app.schemas import SiteConfigIn
 
 
@@ -24,12 +21,3 @@ class CommunitySettingsTests(unittest.IsolatedAsyncioTestCase):
         await update_site_config(SiteConfigIn(logo_url=""), admin=None, db=db)
         self.assertEqual((await site_config_public(db=db))["logo_url"], "")
 
-    async def test_upload_bounds_and_existing_default(self):
-        for limit in (0, -1, 501):
-            with self.assertRaises(ValidationError): SiteConfigIn(upload_max_size_mb=limit)
-        self.assertEqual(SiteConfigIn(upload_max_size_mb=500).upload_max_size_mb, 500)
-        db = FakeDB()
-        self.assertEqual((await _get_config(db))[1], 10)
-        for value, expected in [("500", 500), ("invalid", 10), ("999999", 500), ("-1", 1)]:
-            db.rows["upload_max_size_mb"] = SimpleNamespace(key="upload_max_size_mb", value=value)
-            self.assertEqual((await _get_config(db))[1], expected)

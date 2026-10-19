@@ -79,7 +79,7 @@ export function SettingsPanel() {
           </div>
           <div>
             <label className="mb-1 block text-[12px] text-[#656d76]">单文件大小上限（MB）</label>
-            <input type="number" min={1} max={500} value={site.upload_max_size_mb || ""} onChange={(e) => setSite({ ...site, upload_max_size_mb: e.target.value })} className="w-full rounded border border-[#d0d7de] px-2 py-1.5 text-sm" />
+            <input type="number" min={1} max={100} value={site.upload_max_size_mb || ""} onChange={(e) => setSite({ ...site, upload_max_size_mb: e.target.value })} className="w-full rounded border border-[#d0d7de] px-2 py-1.5 text-sm" />
           </div>
         </div>
       </div>
