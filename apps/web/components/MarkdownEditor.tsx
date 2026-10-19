@@ -18,6 +18,7 @@ import { http } from "@/lib/api";
 import { isUploadedVideo } from "@/lib/video";
 
 type Props = {
+  onBusyChange?: (busy: boolean) => void;
   value?: string;
   onChange?: (md: string) => void;
   placeholder?: string;
@@ -88,7 +89,7 @@ const MARKDOWN_BODY_CSS = `
 .bytemd-wrap .markdown-body .hljs { background: transparent; }
 `;
 
-export function MarkdownEditor({ value = "", onChange, placeholder = "内容…", height = 360, cacheId }: Props) {
+export function MarkdownEditor({ value = "", onChange, placeholder = "内容…", height = 360, cacheId, onBusyChange }: Props) {
   // 插件实例保持稳定，避免每次渲染重建导致 @bytemd/react $set 抖动
   const plugins = useMemo(
     () => [
@@ -125,6 +126,7 @@ export function MarkdownEditor({ value = "", onChange, placeholder = "内容…"
                 input.onchange = async () => {
                   const file = input.files?.[0];
                   if (!file) return;
+                  onBusyChange?.(true);
                   try {
                     const r = await uploadFile(file);
                     const editor = ctx.editor;
@@ -137,7 +139,7 @@ export function MarkdownEditor({ value = "", onChange, placeholder = "内容…"
                     }
                   } catch (e: any) {
                     alert(e.message || "上传失败");
-                  }
+                  } finally { onBusyChange?.(false); }
                 };
                 input.click();
               },
@@ -146,7 +148,7 @@ export function MarkdownEditor({ value = "", onChange, placeholder = "内容…"
         ],
       },
     ],
-    []
+    [onBusyChange]
   );
 
   return (
@@ -166,6 +168,8 @@ export function MarkdownEditor({ value = "", onChange, placeholder = "内容…"
         locale={zh_Hans}
         uploadImages={async (files: File[]) => {
           const results = [];
+          onBusyChange?.(true);
+          try {
           for (const f of files) {
             try {
               const r = await uploadFile(f);
@@ -175,6 +179,7 @@ export function MarkdownEditor({ value = "", onChange, placeholder = "内容…"
             }
           }
           return results;
+          } finally { onBusyChange?.(false); }
         }}
       />
     </div>

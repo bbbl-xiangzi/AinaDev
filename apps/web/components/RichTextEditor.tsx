@@ -18,6 +18,7 @@ import { RichEditorTable } from "./rich-editor-table";
 import "./rich-editor.css";
 
 type Props = {
+  onBusyChange?: (busy: boolean) => void;
   value?: string;
   onChange?: (markdown: string) => void;
   placeholder?: string;
@@ -27,7 +28,7 @@ type Props = {
 };
 
 /** Visual editing with the existing Markdown API, search and Agent storage contract. */
-export function RichTextEditor({ value = "", onChange, placeholder = "请输入正文…", height = 480 }: Props) {
+export function RichTextEditor({ value = "", onChange, placeholder = "请输入正文…", height = 480, onBusyChange }: Props) {
   const latest = useRef({ value, onChange });
   latest.current = { value, onChange };
   const emitted = useRef(value);
@@ -111,6 +112,7 @@ export function RichTextEditor({ value = "", onChange, placeholder = "请输入�
   async function uploadFiles(files: File[]) {
     if (!editor || busy) return;
     setBusy(true);
+    onBusyChange?.(true);
     setError("");
     try {
       for (const file of files) {
@@ -129,6 +131,7 @@ export function RichTextEditor({ value = "", onChange, placeholder = "请输入�
       setError(err instanceof Error ? err.message : "上传失败，请重试");
     } finally {
       setBusy(false);
+      onBusyChange?.(false);
     }
   }
 
