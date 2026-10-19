@@ -1,5 +1,6 @@
 """Local or private S3 storage. Public attachments and RAG originals use separate prefixes."""
 import mimetypes
+import re
 import shutil
 import tempfile
 from contextlib import contextmanager
@@ -60,8 +61,12 @@ def save(kind: str, key: str, source) -> str:
     if not dest.is_relative_to(root):
         raise ValueError("Invalid storage path")
     dest.parent.mkdir(parents=True, exist_ok=True)
-    with dest.open("wb") as output:
-        shutil.copyfileobj(source, output)
+    try:
+        with dest.open("wb") as output:
+            shutil.copyfileobj(source, output, 1024 * 1024)
+    except BaseException:
+        dest.unlink(missing_ok=True)
+        raise
     return str(dest)
 
 
@@ -97,13 +102,20 @@ def document_path(ref: str):
         yield _local_document(ref)
 
 
-def _object_response(key: str, filename: str, private: bool):
+def _object_response(key: str, filename: str, private: bool, range_header: str | None = None):
     from botocore.exceptions import ClientError, BotoCoreError
 
+    # Browsers request byte ranges to seek in videos. Ignore malformed/multiple
+    # ranges (a full 200 response is valid) instead of forwarding arbitrary input.
+    options = {}
+    if range_header and re.fullmatch(r"bytes=(?:[0-9]+-[0-9]*|-[0-9]+)", range_header):
+        options["Range"] = range_header
     try:
-        obj = client().get_object(Bucket=settings.s3_bucket, Key=key)
+        obj = client().get_object(Bucket=settings.s3_bucket, Key=key, **options)
     except ClientError as exc:
         code = exc.response.get("Error", {}).get("Code")
+        if code == "InvalidRange":
+            raise HTTPException(416, "请求范围超出文件大小") from None
         raise HTTPException(404 if code in ("NoSuchKey", "404", "NotFound") else 503,
                             "文件不存在" if code in ("NoSuchKey", "404", "NotFound") else "文件存储暂不可用") from None
     except BotoCoreError:
@@ -117,22 +129,27 @@ def _object_response(key: str, filename: str, private: bool):
             body.close()
 
     media = mimetypes.guess_type(filename)[0] or "application/octet-stream"
-    inline = not private and media in ("image/png", "image/jpeg", "image/gif", "image/webp", "image/bmp")
-    return ObjectResponse(chunks(), body=body, media_type=media, headers={
+    inline = not private and media in ("image/png", "image/jpeg", "image/gif", "image/webp", "image/bmp", "video/mp4", "video/webm")
+    headers = {
         "Content-Length": str(obj["ContentLength"]),
         "Content-Disposition": f"{'inline' if inline else 'attachment'}; filename*=UTF-8''{quote(filename, safe='')}",
         "X-Content-Type-Options": "nosniff",
         "Cache-Control": "private, no-store" if private else "public, max-age=3600",
-    })
+        "Accept-Ranges": "bytes",
+    }
+    if obj.get("ContentRange"):
+        headers["Content-Range"] = obj["ContentRange"]
+    return ObjectResponse(chunks(), body=body, media_type=media, headers=headers,
+                          status_code=206 if obj.get("ContentRange") else 200)
 
 
-def public_response(key: str):
+def public_response(key: str, range_header: str | None = None):
     try:
         checked_key(key)
     except ValueError:
         raise HTTPException(404, "文件不存在") from None
     # Always force the public prefix; callers cannot address private originals.
-    return _object_response(f"uploads/{key}", Path(key).name, False)
+    return _object_response(f"uploads/{key}", Path(key).name, False, range_header)
 
 
 def private_response(ref: str, filename: str):

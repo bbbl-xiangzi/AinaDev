@@ -159,8 +159,8 @@ if settings.storage_backend == "s3":
     from app.services.file_storage import public_response
 
     @app.get("/uploads/{object_path:path}", include_in_schema=False)
-    def stored_attachment(object_path: str):
-        return public_response(object_path)
+    def stored_attachment(object_path: str, request: Request):
+        return public_response(object_path, request.headers.get("range"))
 else:
     from fastapi.staticfiles import StaticFiles
 
