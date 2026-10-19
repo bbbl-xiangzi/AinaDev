@@ -36,7 +36,7 @@ async def _get_config(db: AsyncSession) -> tuple[set[str], int]:
         max_mb = int(cfg.get("upload_max_size_mb", DEFAULT_MAX_SIZE_MB))
     except ValueError:
         max_mb = DEFAULT_MAX_SIZE_MB
-    return allowed, max_mb
+    return allowed, max(1, min(max_mb, 500))
 
 
 def _check_magic(content: bytes, ext: str) -> bool:
