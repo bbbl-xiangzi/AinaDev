@@ -12,15 +12,19 @@ type Props = {
 /** Both editors retain the existing Markdown persistence and draft contract. */
 export function BytemdEditor(props: Props) {
   const [mode, setMode] = useState<"markdown" | "rich">("markdown");
+  const [richOpened, setRichOpened] = useState(false);
   const [busy, setBusy] = useState(false);
   const [value, setValue] = useState(props.value || "");
   useEffect(() => { setValue(props.value || ""); }, [props.value]);
   const shared = { ...props, value, onBusyChange: setBusy, onChange: (next: string) => { setValue(next); props.onChange?.(next); } };
   return <div>
     <div className="mb-2 flex flex-wrap items-center gap-2 text-sm" role="group" aria-label="编辑模式">
-      {([['markdown', 'Markdown'], ['rich', '富文本']] as const).map(([key, label]) => <button key={key} type="button" disabled={busy} aria-pressed={mode === key} onClick={() => setMode(key)} className={`rounded border border-[#d0d7de] px-3 py-1.5 ${mode === key ? "bg-[#0969da]/10 text-[#0969da]" : "bg-white text-[#656d76]"}`}>{label}</button>)}
+      {([['markdown', 'Markdown'], ['rich', '富文本']] as const).map(([key, label]) => <button key={key} type="button" disabled={busy} aria-pressed={mode === key} onClick={() => { if (key === "rich") setRichOpened(true); setMode(key); }} className={`rounded border border-[#d0d7de] px-3 py-1.5 ${mode === key ? "bg-[#0969da]/10 text-[#0969da]" : "bg-white text-[#656d76]"}`}>{label}</button>)}
       <span className="text-xs text-[#656d76]">富文本支持常用排版；复杂 Markdown 建议使用源码模式</span>
     </div>
-    {mode === "rich" ? <RichTextEditor {...shared} /> : <MarkdownEditor {...shared} />}
+    {/* Keep mounted editors alive while switching to avoid detaching a focused
+        ProseMirror/CodeMirror DOM while its selection observer is settling. */}
+    <div hidden={mode !== "markdown"}><MarkdownEditor {...shared} /></div>
+    {richOpened && <div hidden={mode !== "rich"}><RichTextEditor {...shared} /></div>}
   </div>;
 }

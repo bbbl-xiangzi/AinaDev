@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
   const browser = await chromium.launch({headless:true, channel:process.env.TEST_BROWSER || 'msedge'});
   try {
     const page = await browser.newPage({viewport:{width:1440,height:1000}});
-    const errors=[];page.on('pageerror', e=>errors.push(e.message));
+    const errors=[];page.on('pageerror', e=>{errors.push(e.message);console.error(e.stack)});
     const source='# 标题\n\n正文 **加粗**\n\n[附件](/uploads/test.pdf)\n\n![图片](/uploads/test.png)\n\n```js\nconst x = 1;\n```';
     await page.addInitScript(source=>{
       localStorage.setItem('community_user',JSON.stringify({id:1,name:'Tester',role:'super_admin'}));
