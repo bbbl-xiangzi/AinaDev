@@ -91,6 +91,7 @@ async def get_site_config(admin: User = Depends(require_super_admin), db: AsyncS
         "upload_allowed_types": "png,jpg,jpeg,gif,webp,pdf,doc,docx,xls,xlsx,txt,md,csv,zip",
         "upload_max_size_mb": "10",
         "review_prompt": "",
+        "logo_url": "",
     }
     for k, v in defaults.items():
         data.setdefault(k, str(v))
@@ -107,7 +108,7 @@ async def site_config_public(db: AsyncSession = Depends(get_db)):
     """公开接口：前端顶栏和 HTML title 用，不需要登录。"""
     from app.config import settings
     from app.models import SiteConfig
-    rows = list(await db.scalars(select(SiteConfig)))
+    rows = list(await db.scalars(select(SiteConfig).where(SiteConfig.key.in_(["site_name", "site_description", "logo_url"]))))
     data = {r.key: r.value for r in rows}
     return {
         "site_name": data.get("site_name") or settings.site_name,
@@ -130,6 +131,7 @@ async def update_site_config(body: SiteConfigIn, admin: User = Depends(require_s
         "upload_allowed_types": "png,jpg,jpeg,gif,webp,pdf,doc,docx,xls,xlsx,txt,md,csv,zip",
         "upload_max_size_mb": "10",
         "review_prompt": "",
+        "logo_url": "",
     }
     data = body.model_dump(exclude_unset=True)
     for key, default in mapping.items():

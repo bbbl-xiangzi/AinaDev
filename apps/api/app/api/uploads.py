@@ -33,7 +33,7 @@ async def _get_config(db: AsyncSession) -> tuple[set[str], int]:
         max_mb = int(cfg.get("upload_max_size_mb", DEFAULT_MAX_SIZE_MB))
     except ValueError:
         max_mb = DEFAULT_MAX_SIZE_MB
-    return allowed, max_mb
+    return allowed, max(1, min(max_mb, 500))
 
 
 def _check_magic(content: bytes, ext: str) -> bool:
@@ -82,7 +82,7 @@ async def upload_file(
     if ext not in allowed:
         raise HTTPException(status_code=400, detail=f"不支持的文件类型 .{ext}，允许：{', '.join(sorted(allowed))}")
 
-    content = await file.read()
+    content = await file.read(max_mb * 1024 * 1024 + 1)
     if len(content) > max_mb * 1024 * 1024:
         raise HTTPException(status_code=400, detail=f"文件超过大小限制（{max_mb}MB）")
     if not _check_magic(content, ext):
