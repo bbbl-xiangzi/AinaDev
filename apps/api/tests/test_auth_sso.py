@@ -51,6 +51,7 @@ class RedisDouble:
 
 class SsoCallbackTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
+        self.enterContext(patch("app.services.oauth2_service.is_safe_sso_url", return_value=(True, "")))
         self.redis = RedisDouble()
         self.db = object()
         self.cfg = SimpleNamespace(extract_employee=True, client_id="test-client", scopes="openid")
