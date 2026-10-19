@@ -2,7 +2,6 @@
 import asyncio
 import tempfile
 import mimetypes
-import shutil
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -15,6 +14,7 @@ from app.config import settings
 from app.core.db import get_db
 from app.core.deps import get_current_user
 from app.models import SiteConfig, User
+from app.services import file_storage
 
 router = APIRouter(prefix="/api/uploads", tags=["uploads"])
 
@@ -85,14 +85,7 @@ def _file_type(ext: str) -> str:
 
 
 def _save_upload(key, source):
-    target = Path(settings.upload_dir).resolve() / key
-    target.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        with target.open("wb") as dest:
-            shutil.copyfileobj(source, dest, 1024 * 1024)
-    except BaseException:
-        target.unlink(missing_ok=True)
-        raise
+    return file_storage.save("uploads", key, source)
 
 
 @router.post("")
