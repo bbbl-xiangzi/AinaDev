@@ -125,11 +125,8 @@ export default function AdminPage() {
           {tab === "audit" && <AuditPanel />}
           {tab === "tickets" && <TicketPanel />}
           {tab === "settings" && <SettingsPanel />}
-<<<<<<< HEAD
           {tab === "banners" && <BannersPanel />}
-=======
           {tab === "sdk" && <SdkPagesPanel />}
->>>>>>> origin/main
           {tab === "other" && (
             <div className="rounded-lg border border-[#d0d7de] bg-white p-6">
               <h3 className="mb-2 text-[15px] font-semibold">其他</h3>
