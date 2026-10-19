@@ -17,7 +17,9 @@ import { ExternalAgentsPanel } from "@/components/admin/ExternalAgentsPanel";
 import { SsoPanel } from "@/components/admin/SsoPanel";
 import { BannersPanel } from "@/components/admin/BannersPanel";
 
-type TabKey = "overview" | "reviews" | "news" | "users" | "categories" | "rag" | "models" | "external" | "audit" | "tickets" | "sso" | "settings" | "other" | "banners";
+import { SdkPagesPanel } from "@/components/admin/SdkPagesPanel";
+
+type TabKey = "overview" | "reviews" | "news" | "users" | "categories" | "rag" | "models" | "external" | "audit" | "tickets" | "sso" | "settings" | "other" | "sdk" | "banners";
 
 const MENU: { key: TabKey; label: string; icon: string }[] = [
   { key: "overview", label: "总览", icon: "📊" },
@@ -33,6 +35,7 @@ const MENU: { key: TabKey; label: string; icon: string }[] = [
   { key: "tickets", label: "奖励设置", icon: "⭐" },
   { key: "settings", label: "设置", icon: "⚙️" },
   { key: "banners", label: "轮播图设置", icon: "🖼️" },
+  { key: "sdk", label: "SDK 页面", icon: "🔗" },
   { key: "other", label: "其他", icon: "⋯" },
 ];
 
@@ -51,6 +54,7 @@ const TAB_LABELS: Record<TabKey, string> = {
   settings: "站点设置",
   banners: "轮播图设置",
   other: "其他功能",
+  sdk: "SDK 页面配置",
 };
 
 export default function AdminPage() {
@@ -121,7 +125,11 @@ export default function AdminPage() {
           {tab === "audit" && <AuditPanel />}
           {tab === "tickets" && <TicketPanel />}
           {tab === "settings" && <SettingsPanel />}
+<<<<<<< HEAD
           {tab === "banners" && <BannersPanel />}
+=======
+          {tab === "sdk" && <SdkPagesPanel />}
+>>>>>>> origin/main
           {tab === "other" && (
             <div className="rounded-lg border border-[#d0d7de] bg-white p-6">
               <h3 className="mb-2 text-[15px] font-semibold">其他</h3>
