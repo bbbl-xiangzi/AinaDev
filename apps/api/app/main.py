@@ -41,6 +41,7 @@ async def init_db_and_seed() -> None:
         await conn.run_sync(Base.metadata.create_all)
         # 轻量迁移：categories 加 post_permission 列（老库）
         from sqlalchemy import text
+        await conn.execute(text("ALTER TABLE sso_configs ADD COLUMN IF NOT EXISTS oauth_options JSON NOT NULL DEFAULT '{}'"))
         await conn.execute(text("ALTER TABLE categories ADD COLUMN IF NOT EXISTS post_permission VARCHAR(20) NOT NULL DEFAULT 'public'"))
         await conn.execute(text("UPDATE categories SET post_permission='closed' WHERE allow_post=false AND post_permission='public'"))
         # ai_news_sources 加 config 列（老库）+ type 从 enum 改成 varchar
