@@ -102,6 +102,20 @@ async def get_site_config(admin: User = Depends(require_super_admin), db: AsyncS
     return data
 
 
+@router.get("/site-config-public")
+async def site_config_public(db: AsyncSession = Depends(get_db)):
+    """公开接口：前端顶栏和 HTML title 用，不需要登录。"""
+    from app.config import settings
+    from app.models import SiteConfig
+    rows = list(await db.scalars(select(SiteConfig)))
+    data = {r.key: r.value for r in rows}
+    return {
+        "site_name": data.get("site_name") or settings.site_name,
+        "site_description": data.get("site_description") or settings.site_description,
+        "logo_url": data.get("logo_url") or "",
+    }
+
+
 @router.put("/site-config")
 async def update_site_config(body: SiteConfigIn, admin: User = Depends(require_super_admin), db: AsyncSession = Depends(get_db)):
     from app.config import settings

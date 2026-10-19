@@ -26,7 +26,7 @@ export default function CategoryPage() {
             <h1 className="text-[20px] font-semibold">{cat?.name}</h1>
             <p className="text-[13px] text-[#656d76]">{cat?.description}</p>
           </div>
-          {cat?.ai_admin && (
+          {cat?.auto_reply_enabled && cat?.ai_admin?.active && !cat?.external_agent_id && (
             <span className="ml-auto rounded-md border border-[#0969da]/30 bg-[#0969da]/5 px-3 py-1 text-[13px] text-[#0969da]">
               🤖 {cat.ai_admin.persona_name} 自动回帖中
             </span>
