@@ -16,7 +16,7 @@ class SearchTests(unittest.IsolatedAsyncioTestCase):
             query = json.loads(request.content)["query"]
             self.assertIn("valueInt: 7", query)
             self.assertIn("_additional { distance }", query)
-            return httpx.Response(200, json={"data": {"Get": {"AinaDev": [
+            return httpx.Response(200, json={"data": {"Get": {store.settings.weaviate_collection: [
                 {"chunk_id": 3, "_additional": {"distance": 0.2}}]}}})
         client = httpx.AsyncClient(transport=httpx.MockTransport(handle), base_url="http://search")
         with patch.object(store, "_client", return_value=client):
