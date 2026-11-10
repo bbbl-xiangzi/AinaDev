@@ -59,6 +59,7 @@ function PostInner() {
   const [body, setBody] = useState("");
   const [parentReply, setParentReply] = useState<any | null>(null);
   const [sending, setSending] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [error, setError] = useState("");
   const [attachments, setAttachments] = useState<AttachmentItem[]>([]);
 
@@ -71,6 +72,7 @@ function PostInner() {
 
   const submitReply = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (sending || uploading) return;
     if (!body.trim()) return;
     setSending(true);
     setError("");
@@ -289,10 +291,10 @@ function PostInner() {
               )}
               {user ? (
                 <>
-                  <BytemdEditor value={body} onChange={setBody} placeholder="写下你的回复…" height={180} />
+                  <BytemdEditor value={body} onChange={setBody} onBusyChange={setUploading} placeholder="写下你的回复…" height={180} />
                   {error && <div className="mb-2 rounded bg-[#ffebe9] px-3 py-1.5 text-[13px] text-[#cf222e]">{error}</div>}
                   <div className="flex justify-end">
-                    <button disabled={sending} className="rounded-md bg-[#0969da] px-4 py-1.5 text-[13px] font-medium text-white hover:bg-[#0550ae] disabled:opacity-60">
+                    <button disabled={sending || uploading} className="rounded-md bg-[#0969da] px-4 py-1.5 text-[13px] font-medium text-white hover:bg-[#0550ae] disabled:opacity-60">
                       {sending ? "回复中…" : "回复"}
                     </button>
                   </div>

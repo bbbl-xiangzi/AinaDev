@@ -32,6 +32,7 @@ const frame = page => page.evaluate(() => new Promise(resolve => requestAnimatio
       if (path === '/api/auth/sso/status') return reply({ enabled: false });
       if (path === '/api/admin/site-config-public' || path === '/api/admin/site-config') return reply({ site_name: 'Example community', login_title: 'Example community', login_subtitle: 'Welcome', auto_sso_login: false });
       if (path === '/api/sdk-pages') return reply([]);
+      if (path === '/api/admin/categories' || path === '/api/admin/external-agents') return reply([]);
       if (path === '/api/categories') return reply([category, { ...category, id: 17, slug: 'announcements', name: '公告' }]);
       if (/^\/api\/categories\/\d+$/.test(path)) return reply(category);
       if (path === '/api/banners') return reply({ items: [] });
@@ -137,6 +138,77 @@ const frame = page => page.evaluate(() => new Promise(resolve => requestAnimatio
       assert.equal(await dialog.evaluate(element => element.contains(document.activeElement)), true, 'Tab must remain inside the modal');
       await page.keyboard.press('Escape');
       assert.equal(await trigger.evaluate(element => document.activeElement === element), true, 'closing restores the trigger focus');
+    });
+
+    await run('nested-modal-preserves-parent', async page => {
+      await page.goto(BASE + '/admin?tab=categories');
+      await page.getByRole('button', { name: '+ 新建栏目', exact: true }).click();
+      const parent = page.getByRole('dialog', { name: '新建栏目', exact: true });
+      await parent.locator('input').first().fill('Unsaved category');
+      await parent.getByText('点击选择', { exact: true }).click();
+      await page.getByRole('dialog').last().waitFor();
+      await page.keyboard.press('Escape'); await frame(page);
+      assert.equal(await parent.count(), 1, 'one Escape must close only the emoji dialog');
+      assert.equal(await parent.locator('input').first().inputValue(), 'Unsaved category');
+      assert.equal(await parent.evaluate(element => element.contains(document.activeElement)), true);
+      assert.equal(await page.evaluate(() => document.body.style.overflow), 'hidden');
+      await page.keyboard.press('Escape');
+      assert.equal(await parent.count(), 0);
+      assert.notEqual(await page.evaluate(() => document.body.style.overflow), 'hidden');
+    });
+
+    await run('edit-blocks-pending-media-save', async (page, state) => {
+      let release, started, submitted = 0;
+      const uploadStarted = new Promise(resolve => { started = resolve; });
+      const uploadGate = new Promise(resolve => { release = resolve; });
+      state.override = async (route, url) => {
+        if (url.pathname === '/api/uploads') {
+          started(); await uploadGate;
+          await route.fulfill({ json: { url: '/uploads/new-image.png', name: 'new-image.png', type: 'image', size: 68 } });
+          return true;
+        }
+        if (url.pathname === '/api/posts/11' && route.request().method() === 'PUT') {
+          submitted++; await route.fulfill({ status: 409, json: { detail: 'Keep editor open' } }); return true;
+        }
+        return false;
+      };
+      try {
+        await page.goto(BASE + '/post/11/edit');
+        await page.getByLabel('帖子标题').fill('Title with image');
+        await page.getByRole('button', { name: '富文本', exact: true }).click();
+        await page.getByLabel('正文富文本编辑', { exact: true }).waitFor();
+        await page.getByLabel('上传图片', { exact: true }).setInputFiles({ name: 'new-image.png', mimeType: 'image/png', buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl2nXcAAAAASUVORK5CYII=', 'base64') });
+        await uploadStarted; await frame(page);
+        assert.equal(await page.getByRole('button', { name: '保存修改', exact: true }).isDisabled(), true, 'saving while media is pending loses its inserted link');
+        assert.equal(submitted, 0);
+        release();
+        await page.getByLabel('正文富文本编辑', { exact: true }).locator('img[src="/uploads/new-image.png"]').waitFor();
+        assert.equal(await page.getByRole('button', { name: '保存修改', exact: true }).isEnabled(), true);
+      } finally { release?.(); }
+    });
+
+    for (const target of ['new', 'reply']) await run(`${target}-blocks-pending-media-submit`, async (page, state) => {
+      let release, started;
+      const ready = new Promise(resolve => { started = resolve; });
+      const gate = new Promise(resolve => { release = resolve; });
+      state.override = async (route, url) => {
+        if (url.pathname !== '/api/uploads') return false;
+        started(); await gate;
+        await route.fulfill({ json: { url: '/uploads/new-image.png', name: 'new-image.png', type: 'image', size: 68 } }); return true;
+      };
+      try {
+        await page.goto(BASE + (target === 'new' ? '/new' : '/post/11'));
+        if (target === 'new') await page.getByPlaceholder('标题', { exact: true }).fill('New post with image');
+        await page.getByRole('button', { name: '富文本', exact: true }).click();
+        const editor = page.getByLabel('正文富文本编辑', { exact: true }); await editor.waitFor();
+        if (target === 'reply') await editor.fill('Reply with image');
+        await page.getByLabel('上传图片', { exact: true }).setInputFiles({ name: 'new-image.png', mimeType: 'image/png', buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl2nXcAAAAASUVORK5CYII=', 'base64') });
+        await ready; await frame(page);
+        const submit = page.getByRole('button', { name: target === 'new' ? '发布' : '回复', exact: true }).last();
+        assert.equal(await submit.isDisabled(), true, 'pending media must be included before submission is enabled');
+        release(); await editor.locator('img[src="/uploads/new-image.png"]').waitFor();
+        assert.equal(await submit.isEnabled(), true);
+      } finally { release?.(); }
     });
 
     await run('audit-load-lock', async (page, state) => {

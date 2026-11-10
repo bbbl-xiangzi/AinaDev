@@ -4,6 +4,9 @@
 
 import { useEffect, useRef } from "react";
 
+const modalStack: symbol[] = [];
+let initialOverflow: string | undefined;
+
 type Props = {
   open: boolean;
   title: string;
@@ -14,12 +17,16 @@ type Props = {
 
 export function Modal({ open, title, width = 640, onClose, children }: Props) {
   const content = useRef<HTMLDivElement>(null);
+  const modalId = useRef(Symbol("modal"));
   const close = useRef(onClose);
   close.current = onClose;
   useEffect(() => {
     if (!open) return;
+    const id = modalId.current;
+    if (!modalStack.length) initialOverflow = document.body.style.overflow;
+    modalStack.push(id);
+    const isTop = () => modalStack[modalStack.length - 1] === id;
     const previous = document.activeElement as HTMLElement | null;
-    const overflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     const controls = () => Array.from(content.current?.querySelectorAll<HTMLElement>(
       'button:not(:disabled), input:not(:disabled), textarea:not(:disabled), select:not(:disabled), a[href], [tabindex="0"], [contenteditable="true"]'
@@ -27,21 +34,26 @@ export function Modal({ open, title, width = 640, onClose, children }: Props) {
     const focusFirst = () => (controls()[0] || content.current)?.focus();
     focusFirst();
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") { e.preventDefault(); close.current(); }
+      if (!isTop()) return;
+      if (e.key === "Escape") { e.preventDefault(); e.stopImmediatePropagation(); close.current(); }
       if (e.key !== "Tab") return;
       const items = controls(), first = items[0], last = items[items.length - 1];
       if (!first) { e.preventDefault(); content.current?.focus(); }
       else if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
       else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
     };
-    const containFocus = (e: FocusEvent) => { if (e.target instanceof Node && !content.current?.contains(e.target)) focusFirst(); };
+    const containFocus = (e: FocusEvent) => { if (isTop() && e.target instanceof Node && !content.current?.contains(e.target)) focusFirst(); };
     document.addEventListener("keydown", onKey);
     document.addEventListener("focusin", containFocus);
     return () => {
       document.removeEventListener("keydown", onKey);
       document.removeEventListener("focusin", containFocus);
-      document.body.style.overflow = overflow;
-      if (previous?.isConnected) previous.focus();
+      const wasTop = isTop();
+      const index = modalStack.indexOf(id);
+      if (index >= 0) modalStack.splice(index, 1);
+      document.body.style.overflow = modalStack.length ? "hidden" : initialOverflow || "";
+      if (!modalStack.length) initialOverflow = undefined;
+      if (wasTop && previous?.isConnected) previous.focus();
     };
   }, [open]);
 

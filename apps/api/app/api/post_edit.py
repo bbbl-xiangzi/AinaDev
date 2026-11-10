@@ -74,7 +74,7 @@ async def update_post(post_id: int, body: PostEditIn, user: User = Depends(get_c
         Post.status == old_status, Post.category_id == category_id,
         Post.locked.is_(False), Post.deleted_at.is_(None),
     ).values(title=title, body_md=body.body_md, status="published", review_reason=None,
-             human_needed=False, updated_at=func.now()).execution_options(synchronize_session=False))
+             updated_at=func.now()).execution_options(synchronize_session=False))
     if changed.rowcount != 1:
         await db.rollback()
         raise HTTPException(409, "帖子已被修改，请刷新后重新编辑")

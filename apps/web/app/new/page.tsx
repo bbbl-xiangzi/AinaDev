@@ -30,6 +30,7 @@ function NewPostForm() {
   const [atAi, setAtAi] = useState(true);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [uploading, setUploading] = useState(false);
 
   useEffect(() => {
     if (!user) {
@@ -53,6 +54,7 @@ function NewPostForm() {
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (loading || uploading) return;
     setError("");
     if (!categoryId) return setError("请选择栏目");
     if (!title.trim()) return setError("请输入标题");
@@ -103,9 +105,9 @@ function NewPostForm() {
           required
           className="w-full rounded-md border border-[#d0d7de] px-4 py-3 text-[20px] font-medium outline-none focus:border-[#0969da]"
         />
-        <BytemdEditor value={body} onChange={setBody} />
+        <BytemdEditor value={body} onChange={setBody} onBusyChange={setUploading} />
         {error && <div className="rounded-md bg-[#ffebe9] px-3 py-2 text-[13px] text-[#cf222e]">{error}</div>}
-        <button type="submit" disabled={loading} className="rounded-md bg-[#0969da] px-5 py-2.5 text-[14px] text-white disabled:opacity-50">
+        <button type="submit" disabled={loading || uploading} className="rounded-md bg-[#0969da] px-5 py-2.5 text-[14px] text-white disabled:opacity-50">
           {loading ? "发布中…" : "发布"}
         </button>
       </form>

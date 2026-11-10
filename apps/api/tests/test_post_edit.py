@@ -84,6 +84,12 @@ class PostEditTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(self.db.audits), 1)
         self.assertEqual((self.db.audits[0].actor_id, self.db.audits[0].action), (7, 'edit_post'))
 
+    async def test_title_correction_preserves_unresolved_human_intervention(self):
+        self.db.connection.exec_driver_sql('UPDATE posts SET human_needed=1 WHERE id=1')
+        body = await self.payload(body_md='Old body')
+        await post_edit.update_post(1, body, user=self.user, db=self.db)
+        self.assertEqual(self.db.row()['human_needed'], 1, 'editing does not resolve an unanswered support request')
+
     async def test_other_member_cannot_read_or_edit(self):
         body = await self.payload()
         other = SimpleNamespace(id=8, role='member')
