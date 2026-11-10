@@ -1,10 +1,12 @@
 # AI 原生开发者社区（ai-native-community）
 
+项目结构、完整功能与验证命令：[项目使用说明](docs/project-overview.md)。
+
 企业登录配置：[OAuth2 / OIDC 通用接入](docs/sso-oauth2.md)。
 
 面向企业的 **AI 原生开发者社区**：发帖、回帖、知识库问答由 **LangGraph Agent 流水线** 自动运维（**发帖先经 AI 异步审核**，通过后才发布并触发 AI 回帖），并内置 **MCP 服务**，可接入豆包工作等智能体生态做每日运维。
 
-- 前端：Next.js 15（App Router）+ TypeScript + Tailwind + ByteMD（Markdown 编辑器，完全本地化，无 CDN 依赖）
+- 前端：Next.js 15（App Router）+ TypeScript + Tailwind + ByteMD / Tiptap 双模式编辑器（完全本地化，无 CDN 依赖）
 - 后端：FastAPI + SQLAlchemy(async) + LangGraph 流水线 + ARQ 定时任务
 - 搜索：jieba 中文分词多词匹配（跨环境一致，不依赖数据库扩展）
 - 向量检索：**Weaviate 独立向量库**（应用侧生成向量）/ pgvector / JSONB+余弦（自动降级）

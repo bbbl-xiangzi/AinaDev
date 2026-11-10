@@ -51,7 +51,6 @@ class RedisDouble:
 
 class SsoCallbackTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
-        self.enterContext(patch("app.services.oauth2_service.is_safe_sso_url", return_value=(True, "")))
         self.redis = RedisDouble()
         self.db = object()
         self.cfg = SimpleNamespace(extract_employee=True, client_id="test-client", scopes="openid")
@@ -125,7 +124,7 @@ class SsoCallbackTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.redis.jobs, [])
 
     async def test_failed_identity_verification_is_not_treated_as_optional(self):
-        self.redis.values["sso:auth:state:valid-state"] = ("verifier|nonce|browser-attempt-12345|"+auth_sso.config_fingerprint(self.cfg)).encode()
+        self.redis.values["sso:auth:state:valid-state"] = ("verifier|nonce|browser-attempt-12345|"+auth_sso.config_fingerprint(self.cfg)+"|https://community.example").encode()
         with patch.object(sso_service, "verify_id_token", AsyncMock(side_effect=ValueError("invalid signature"))):
             with self.assertRaises(HTTPException) as caught:
                 await auth_sso.sso_callback(code="test-code", state="valid-state", db=self.db)

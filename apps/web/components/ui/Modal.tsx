@@ -2,7 +2,7 @@
 
 /** 通用模态弹窗：白色磨砂玻璃遮罩 + 居中卡片。 */
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 
 type Props = {
   open: boolean;
@@ -13,14 +13,37 @@ type Props = {
 };
 
 export function Modal({ open, title, width = 640, onClose, children }: Props) {
+  const content = useRef<HTMLDivElement>(null);
+  const close = useRef(onClose);
+  close.current = onClose;
   useEffect(() => {
     if (!open) return;
+    const previous = document.activeElement as HTMLElement | null;
+    const overflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const controls = () => Array.from(content.current?.querySelectorAll<HTMLElement>(
+      'button:not(:disabled), input:not(:disabled), textarea:not(:disabled), select:not(:disabled), a[href], [tabindex="0"], [contenteditable="true"]'
+    ) || []).filter(element => element.getClientRects().length > 0);
+    const focusFirst = () => (controls()[0] || content.current)?.focus();
+    focusFirst();
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") { e.preventDefault(); close.current(); }
+      if (e.key !== "Tab") return;
+      const items = controls(), first = items[0], last = items[items.length - 1];
+      if (!first) { e.preventDefault(); content.current?.focus(); }
+      else if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
     };
+    const containFocus = (e: FocusEvent) => { if (e.target instanceof Node && !content.current?.contains(e.target)) focusFirst(); };
     document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
+    document.addEventListener("focusin", containFocus);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("focusin", containFocus);
+      document.body.style.overflow = overflow;
+      if (previous?.isConnected) previous.focus();
+    };
+  }, [open]);
 
   if (!open) return null;
 
@@ -30,6 +53,11 @@ export function Modal({ open, title, width = 640, onClose, children }: Props) {
       onClick={onClose}
     >
       <div
+        ref={content}
+        tabIndex={-1}
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
         className="max-h-[85vh] w-full overflow-y-auto rounded-xl border border-white/60 bg-white p-6 shadow-2xl shadow-black/10"
         style={{ maxWidth: width }}
         onClick={(e) => e.stopPropagation()}
@@ -37,6 +65,8 @@ export function Modal({ open, title, width = 640, onClose, children }: Props) {
         <div className="mb-4 flex items-center justify-between">
           <h3 className="text-[16px] font-semibold text-[#24292f]">{title}</h3>
           <button
+            type="button"
+            aria-label={`关闭${title}`}
             onClick={onClose}
             className="flex h-7 w-7 items-center justify-center rounded-md text-[#656d76] hover:bg-[#eaeef2] hover:text-[#24292f]"
           >

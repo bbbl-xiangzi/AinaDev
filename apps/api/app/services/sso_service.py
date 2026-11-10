@@ -76,8 +76,8 @@ def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def redirect_uri() -> str:
-    return f"{settings.public_base_url.rstrip('/')}/api/auth/sso/callback"
+def redirect_uri(origin: str | None = None) -> str:
+    return f"{(origin or settings.public_base_url).rstrip('/')}/api/auth/sso/callback"
 
 
 # ---------- 配置读写 ----------
@@ -215,15 +215,15 @@ def _new_state_record() -> tuple[str, str, str]:
     return state, verifier, nonce
 
 
-def authorize_url_of(cfg: SsoConfig, endpoints: dict[str, str], state: str, verifier: str, nonce: str) -> str:
+def authorize_url_of(cfg: SsoConfig, endpoints: dict[str, str], state: str, verifier: str, nonce: str, callback_uri: str | None = None) -> str:
     if getattr(cfg,"protocol","oidc")=="oauth2":
         from app.services.oauth2_service import authorize_url
-        return authorize_url(cfg,endpoints,state,verifier)
+        return authorize_url(cfg,endpoints,state,verifier,callback_uri)
     challenge = _b64url(hashlib.sha256(verifier.encode("ascii")).digest())
     params = {
         "response_type": "code",
         "client_id": cfg.client_id,
-        "redirect_uri": redirect_uri(),
+        "redirect_uri": callback_uri or redirect_uri(),
         "scope": cfg.scopes or "openid profile email",
         "state": state,
         "nonce": nonce,
@@ -234,11 +234,11 @@ def authorize_url_of(cfg: SsoConfig, endpoints: dict[str, str], state: str, veri
 
 
 # ---------- 回调处理 ----------
-async def exchange_token(cfg: SsoConfig, code: str, verifier: str) -> dict[str, Any]:
+async def exchange_token(cfg: SsoConfig, code: str, verifier: str, callback_uri: str | None = None) -> dict[str, Any]:
     """授权码换 token（client_secret + PKCE）。"""
     if getattr(cfg,"protocol","oidc")=="oauth2":
         from app.services.oauth2_service import exchange
-        return await exchange(cfg,code,verifier)
+        return await exchange(cfg,code,verifier,callback_uri)
     token_url = (cfg.token_endpoint or "").strip()
     if not token_url:
         from app.services.sso_service import resolve_endpoints
@@ -250,7 +250,7 @@ async def exchange_token(cfg: SsoConfig, code: str, verifier: str) -> dict[str, 
     data = {
         "grant_type": "authorization_code",
         "code": code,
-        "redirect_uri": redirect_uri(),
+        "redirect_uri": callback_uri or redirect_uri(),
         "client_id": cfg.client_id,
         "client_secret": client_secret_of(cfg),
         "code_verifier": verifier,

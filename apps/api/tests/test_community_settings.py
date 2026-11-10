@@ -17,7 +17,7 @@ class CommunitySettingsTests(unittest.IsolatedAsyncioTestCase):
         await update_site_config(SiteConfigIn(logo_url="/uploads/logo.png", mcp_api_key="private-test-value"), admin=None, db=db)
         public = await site_config_public(db=db)
         self.assertEqual(public["logo_url"], "/uploads/logo.png")
-        self.assertEqual(set(public), {"site_name", "site_description", "logo_url"})
+        self.assertEqual(set(public), {"site_name", "site_description", "logo_url", "login_title", "login_subtitle", "auto_sso_login"})
         await update_site_config(SiteConfigIn(logo_url=""), admin=None, db=db)
         self.assertEqual((await site_config_public(db=db))["logo_url"], "")
 

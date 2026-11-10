@@ -18,6 +18,7 @@ export function SettingsPanel() {
       await http.put("/admin/site-config", {
         site_name: site.site_name || null,
         login_title: site.login_title,
+        auto_sso_login: String(site.auto_sso_login).toLowerCase() === "true",
         login_subtitle: site.login_subtitle,
         site_description: site.site_description || null,
         mcp_api_key: site.mcp_api_key || null,

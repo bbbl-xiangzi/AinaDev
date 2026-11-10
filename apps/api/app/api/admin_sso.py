@@ -1,6 +1,7 @@
 """管理：SSO 配置；测试使用脱离 ORM 的副本，不修改运行中配置。"""
 from copy import deepcopy
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
+from app.core.public_origin import public_origin
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_db
@@ -15,10 +16,10 @@ from app.services.oauth2_service import checked_url
 router = APIRouter(prefix="/api/admin/sso", tags=["admin-sso"])
 
 
-def _to_out(cfg):
+def _to_out(cfg, request=None):
     data={key:getattr(cfg,key) for key in SsoConfigOut.model_fields
           if key not in {"has_client_secret","redirect_uri","oauth_options"}}
-    data.update(has_client_secret=bool(cfg.client_secret_encrypted),redirect_uri=sso_service.redirect_uri(),
+    data.update(has_client_secret=bool(cfg.client_secret_encrypted),redirect_uri=sso_service.redirect_uri(public_origin(request)),
                 oauth_options=OAuthOptions.model_validate(cfg.oauth_options or {}))
     return SsoConfigOut(**data)
 
@@ -62,12 +63,12 @@ async def validate_config(cfg, *, required=False):
 
 
 @router.get("/config", response_model=SsoConfigOut)
-async def get_config(admin: User=Depends(require_super_admin),db:AsyncSession=Depends(get_db)):
-    return _to_out(await sso_service.get_or_create_config(db))
+async def get_config(request: Request = None, admin: User=Depends(require_super_admin),db:AsyncSession=Depends(get_db)):
+    return _to_out(await sso_service.get_or_create_config(db), request)
 
 
 @router.put("/config", response_model=SsoConfigOut)
-async def update_config(body:SsoConfigIn,admin:User=Depends(require_super_admin),db:AsyncSession=Depends(get_db)):
+async def update_config(body:SsoConfigIn,request:Request=None,admin:User=Depends(require_super_admin),db:AsyncSession=Depends(get_db)):
     current=await sso_service.get_or_create_config(db)
     cfg=candidate(current,body)
     try:
@@ -81,7 +82,7 @@ async def update_config(body:SsoConfigIn,admin:User=Depends(require_super_admin)
     await db.refresh(current)
     await audit(db,"user",admin.id,"update_sso_config","sso_configs",current.id,
                 {"enabled":current.enabled,"protocol":current.protocol,"bind_rule":current.bind_rule})
-    return _to_out(current)
+    return _to_out(current, request)
 
 
 @router.post("/config/test", response_model=SsoTestOut)

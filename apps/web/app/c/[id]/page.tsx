@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
+import { AnnouncementCard } from "@/components/AnnouncementCard";
 import { Sidebar } from "@/components/Sidebar";
 import { PostCard } from "@/components/PostCard";
 import { http } from "@/lib/api";
@@ -40,6 +41,7 @@ export default function CategoryPage() {
           )}
         </div>
       </main>
+      <aside className="hidden w-[280px] shrink-0 space-y-4 lg:block"><AnnouncementCard /></aside>
     </div>
   );
 }

@@ -39,10 +39,10 @@ def renamed(values, names):
     return {names.get(key,key):value for key,value in values.items()}
 
 
-def authorize_url(cfg, endpoints, state, verifier):
+def authorize_url(cfg, endpoints, state, verifier, callback_uri=None):
     from app.services.sso_service import _b64url, redirect_uri
     opt=options(cfg)
-    params={"client_id":cfg.client_id,"redirect_uri":redirect_uri(),"response_type":"code","state":state}
+    params={"client_id":cfg.client_id,"redirect_uri":callback_uri or redirect_uri(),"response_type":"code","state":state}
     if cfg.scopes:
         params["scope"]=cfg.scopes
     if opt.pkce:
@@ -75,11 +75,11 @@ async def request_json(url, method, mode, values, *, auth=None):
         raise ValueError("身份服务返回异常，请联系管理员检查接口配置") from None
 
 
-async def exchange(cfg, code, verifier):
+async def exchange(cfg, code, verifier, callback_uri=None):
     from app.services.sso_service import client_secret_of, redirect_uri
     opt=options(cfg)
     values={"client_id":cfg.client_id,"client_secret":client_secret_of(cfg),"code":code,
-            "grant_type":"authorization_code","redirect_uri":redirect_uri()}
+            "grant_type":"authorization_code","redirect_uri":callback_uri or redirect_uri()}
     auth=None
     if opt.token_auth=="basic":
         auth=httpx.BasicAuth(values.pop("client_id"),values.pop("client_secret"))

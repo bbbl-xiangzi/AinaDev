@@ -6,6 +6,7 @@ import StarterKit from "@tiptap/starter-kit";
 import Heading from "@tiptap/extension-heading";
 import { generateHTML } from "@tiptap/core";
 import Image from "@tiptap/extension-image";
+import { RichEditorImage } from "./rich-editor-image";
 import { TableKit } from "@tiptap/extension-table";
 import { Markdown } from "@tiptap/markdown";
 import TaskList from "@tiptap/extension-task-list";
@@ -37,6 +38,29 @@ export function RichTextEditor({ value = "", onChange, placeholder = "请输入�
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [pane, setPane] = useState("edit");
+  const [fullscreen, setFullscreen] = useState(false);
+  const root = useRef<HTMLDivElement>(null);
+  const fullscreenButton = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!fullscreen) return;
+    const overflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    fullscreenButton.current?.focus();
+    const keydown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") { event.preventDefault(); setFullscreen(false); }
+      if (event.key !== "Tab") return;
+      const controls = Array.from(root.current?.querySelectorAll<HTMLElement>('button:not(:disabled), select:not(:disabled), input:not(:disabled), [contenteditable="true"], a[href], [tabindex="0"]') || []).filter(el => el.getClientRects().length > 0);
+      const first = controls[0], last = controls[controls.length - 1];
+      if (event.shiftKey && (document.activeElement === first || !root.current?.contains(document.activeElement))) { event.preventDefault(); last?.focus(); }
+      else if (!event.shiftKey && (document.activeElement === last || !root.current?.contains(document.activeElement))) { event.preventDefault(); first?.focus(); }
+    };
+    document.addEventListener("keydown", keydown);
+    return () => {
+      document.body.style.overflow = overflow;
+      document.removeEventListener("keydown", keydown);
+      fullscreenButton.current?.focus();
+    };
+  }, [fullscreen]);
   const [preview, setPreview] = useState(value);
   const [linkOpen, setLinkOpen] = useState(false);
   const [linkUrl, setLinkUrl] = useState("");
@@ -57,7 +81,7 @@ export function RichTextEditor({ value = "", onChange, placeholder = "请输入�
         }
         return `${"#".repeat(node.attrs?.level || 1)} ${helpers.renderChildren(content).replace(/(\s)(#+)(\s*)$/, "$1\\$2$3")}`;
       } }),
-      Image.configure({ allowBase64: false }),
+      RichEditorImage.configure({ allowBase64: false }),
       TaskList,
       TaskItem.configure({ nested: true }),
       TableKit.configure({ table: false }),
@@ -130,8 +154,7 @@ export function RichTextEditor({ value = "", onChange, placeholder = "请输入�
     } catch (err) {
       setError(err instanceof Error ? err.message : "上传失败，请重试");
     } finally {
-      setBusy(false);
-      onBusyChange?.(false);
+      setBusy(false); onBusyChange?.(false);
     }
   }
 
@@ -155,8 +178,9 @@ export function RichTextEditor({ value = "", onChange, placeholder = "请输入�
   );
   const heading = [1, 2, 3].find(level => editor?.isActive("heading", { level })) || 0;
   return (
-    <div className="rich-editor rounded-lg border border-[#d0d7de] bg-white">
+    <div ref={root} className={`rich-editor rounded-lg border border-[#d0d7de] bg-white ${fullscreen ? "rich-editor-fullscreen" : ""}`} data-view={pane} role={fullscreen ? "dialog" : undefined} aria-modal={fullscreen ? true : undefined} aria-label={fullscreen ? "全屏编辑器" : undefined}>
       <div className="rich-toolbar" role="toolbar" aria-label="正文格式">
+        <div className="rich-format-tools" hidden={pane === "preview"}>
         <select aria-label="段落样式" value={heading} disabled={!editor} onChange={event => {
           const level = Number(event.target.value) as 1 | 2 | 3;
           if (level) editor?.chain().focus().setHeading({ level }).run();
@@ -179,8 +203,15 @@ export function RichTextEditor({ value = "", onChange, placeholder = "请输入�
         {button("表格", () => editor?.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run())}
         {button("撤销", () => editor?.chain().focus().undo().run(), false, !editor?.can().undo())}
         {button("重做", () => editor?.chain().focus().redo().run(), false, !editor?.can().redo())}
+        </div>
+        <div className="rich-view-tools" role="group" aria-label="编辑器视图">
+          {[["edit", "仅编辑"], ["preview", "仅预览"], ["split", "分屏"]].map(([id, label]) => button(label, () => { setPane(id); setLinkOpen(false); }, pane === id))}
+          <button ref={fullscreenButton} type="button" className={`rich-tool rich-icon-tool ${fullscreen ? "rich-tool-active" : ""}`} title={fullscreen ? "退出全屏" : "全屏"} aria-label={fullscreen ? "退出全屏" : "全屏"} aria-pressed={fullscreen} onMouseDown={event => event.preventDefault()} onClick={() => setFullscreen(value => !value)}>
+            <span aria-hidden="true" dangerouslySetInnerHTML={{ __html: richEditorIcons[fullscreen ? "退出全屏" : "全屏"] }} />
+          </button>
+        </div>
       </div>
-      {editor?.isActive("table") && <div className="rich-toolbar" aria-label="表格操作">
+      {pane !== "preview" && editor?.isActive("table") && <div className="rich-toolbar" aria-label="表格操作">
         {button("添加行", () => editor.chain().focus().addRowAfter().run())}
         {button("添加列", () => editor.chain().focus().addColumnAfter().run())}
         {button("删除行", () => editor.chain().focus().deleteRow().run())}
@@ -196,14 +227,11 @@ export function RichTextEditor({ value = "", onChange, placeholder = "请输入�
       <input ref={input} type="file" className="hidden" aria-label="上传视频或附件" onChange={e => { const files = Array.from(e.target.files || []); e.target.value = ""; void uploadFiles(files); }} />
       <input ref={imageInput} type="file" accept="image/png,image/jpeg,image/gif,image/webp" className="hidden" aria-label="上传图片" onChange={e => { const files = Array.from(e.target.files || []); e.target.value = ""; void uploadFiles(files); }} />
       {error && <div role="alert" className="border-b border-[#d0d7de] bg-[#ffebe9] px-3 py-2 text-sm text-[#cf222e]">{error}</div>}
-      <div className="flex border-b border-[#d0d7de] md:hidden" role="tablist" aria-label="正文视图">
-        {[["edit", "编辑"], ["preview", "预览"]].map(([id, name]) => <button type="button" role="tab" aria-selected={pane === id} key={id} onClick={() => setPane(id)} className={`flex-1 px-3 py-2 text-sm ${pane === id ? "border-b-2 border-[#0969da] text-[#0969da]" : "text-[#656d76]"}`}>{name}</button>)}
-      </div>
-      <div className="grid min-w-0 md:grid-cols-2" style={{ height: Math.max(height, 280) }}>
-        <div className={`${pane === "edit" ? "block" : "hidden"} min-h-0 min-w-0 overflow-auto p-5 md:block md:border-r md:border-[#d0d7de]`}>
+      <div className="rich-editor-panes" style={{ height: fullscreen ? undefined : Math.max(height, 280) }}>
+        <div aria-label="正文编辑区" hidden={pane === "preview"} className="rich-edit-pane min-h-0 min-w-0 overflow-auto p-5">
           <EditorContent editor={editor} />
         </div>
-        <section aria-label="帖子实时预览" className={`${pane === "preview" ? "block" : "hidden"} min-h-0 overflow-auto p-5 md:block`}>
+        <section aria-label="帖子实时预览" hidden={pane === "edit"} tabIndex={0} className="min-h-0 min-w-0 overflow-auto p-5">
           <div className="mb-3 text-xs text-[#656d76]">预览</div>
           <MarkdownView content={preview} />
         </section>

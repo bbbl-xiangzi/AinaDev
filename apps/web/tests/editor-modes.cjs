@@ -45,7 +45,7 @@ const assert = require('node:assert/strict');
     await page.getByLabel('段落样式').selectOption('2');
     assert.equal(await page.getByLabel('帖子实时预览').locator('h2').count(),1);
     await page.setViewportSize({width:390,height:844});
-    await page.getByRole('tab',{name:'预览',exact:true}).click();
+    await page.getByRole('button',{name:'仅预览',exact:true}).click();
     assert.equal(await editor.isVisible(),false);
     assert.equal(await page.getByLabel('帖子实时预览').isVisible(),true);
     assert.deepEqual(errors,[]);

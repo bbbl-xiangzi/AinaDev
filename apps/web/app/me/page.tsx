@@ -28,6 +28,9 @@ export default function MePage() {
   const [pfEmp, setPfEmp] = useState<Record<string, string>>({}); // 员工扩展字段
   const [profileMsg, setProfileMsg] = useState("");
   const [profileLoading, setProfileLoading] = useState(false);
+  const [profileReady, setProfileReady] = useState(false);
+  const [profileSaving, setProfileSaving] = useState(false);
+  const profileRequest = useRef(0);
   const [fieldDefs, setFieldDefs] = useState<any[]>([]); // 启用的员工字段定义（动态渲染）
   // 修改密码
   const [passOpen, setPassOpen] = useState(false);
@@ -37,10 +40,13 @@ export default function MePage() {
   const [passMsg, setPassMsg] = useState("");
 
   const openProfile = async () => {
+    const request = ++profileRequest.current;
     setPfName(user?.name || "");
     setPfDept(user?.department || "");
     setPfOrg(user?.org_id || "");
     setPfEmp({});
+    setFieldDefs([]);
+    setProfileReady(false);
     setProfileMsg("");
     setProfileOpen(true);
     setProfileLoading(true);
@@ -49,23 +55,36 @@ export default function MePage() {
         http.get("/me/employee-fields"),
         http.get("/me/employee"),
       ]);
+      if (request !== profileRequest.current) return;
+      if (!Array.isArray(defs) || !ep || typeof ep !== "object") throw new Error("Invalid employee response");
       setFieldDefs(defs || []);
       const pick: Record<string, string> = {};
       (defs || []).forEach((d: any) => {
         if (d.target !== "user") {
           const v = d.target === "custom" ? (ep?.extras || {})[d.field_key] : ep?.[d.field_key];
-          if (v) pick[d.field_key] = v;
+          if (v !== undefined && v !== null) pick[d.field_key] = String(v);
         }
       });
       setPfEmp(pick);
+      setProfileReady(true);
     } catch {
-      /* 员工扩展信息读取失败不阻塞 */
+      if (request === profileRequest.current) setProfileMsg("员工信息加载失败，请关闭后重试，未保存任何修改。");
     } finally {
-      setProfileLoading(false);
+      if (request === profileRequest.current) setProfileLoading(false);
     }
   };
 
+  const closeProfile = () => {
+    if (profileSaving) return;
+    profileRequest.current++;
+    setProfileOpen(false);
+  };
+
+  useEffect(() => () => { profileRequest.current++; }, []);
+
   const saveProfile = async () => {
+    if (!profileReady || profileLoading || profileSaving) return;
+    setProfileSaving(true);
     setProfileMsg("");
     try {
       const body: any = { name: pfName, department: pfDept, org_id: pfOrg };
@@ -77,12 +96,14 @@ export default function MePage() {
         else body[d.field_key] = v;
       });
       body.extras = extras;
-      const updated = await http.patch("/me/profile", body);
-      refreshUser?.();
+      await http.patch("/me/profile", body);
+      await refreshUser();
       setProfileMsg("✓ 已保存");
-      setTimeout(() => setProfileOpen(false), 800);
+      setProfileOpen(false);
     } catch (err: any) {
       setProfileMsg(err?.message || "保存失败");
+    } finally {
+      setProfileSaving(false);
     }
   };
 
@@ -243,6 +264,81 @@ export default function MePage() {
             </div>
           )}
         </div>
+
+        {/* 编辑资料弹窗 */}
+        <Modal open={profileOpen} title="编辑个人资料" width={460} onClose={closeProfile}>
+          <div className="space-y-4" aria-busy={profileSaving}>
+            <div>
+              <label htmlFor="profile-name" className="mb-1 block text-[13px] font-medium text-[#24292f]">昵称</label>
+              <input id="profile-name" value={pfName} onChange={(e) => setPfName(e.target.value)} maxLength={50} className="w-full rounded-md border border-[#d0d7de] px-3 py-2 text-[14px] outline-none focus:border-[#0969da]" />
+            </div>
+            <div>
+              <label htmlFor="profile-department" className="mb-1 block text-[13px] font-medium text-[#24292f]">部门</label>
+              <input id="profile-department" value={pfDept} onChange={(e) => setPfDept(e.target.value)} maxLength={100} placeholder="如：基础架构部" className="w-full rounded-md border border-[#d0d7de] px-3 py-2 text-[14px] outline-none focus:border-[#0969da]" />
+            </div>
+            <div>
+              <label htmlFor="profile-organization" className="mb-1 block text-[13px] font-medium text-[#24292f]">所属组织 / 单位</label>
+              <input id="profile-organization" value={pfOrg} onChange={(e) => setPfOrg(e.target.value)} maxLength={100} placeholder="如：XX 集团" className="w-full rounded-md border border-[#d0d7de] px-3 py-2 text-[14px] outline-none focus:border-[#0969da]" />
+            </div>
+
+            {/* 员工扩展信息（SSO 同步 / AI 抽取后可自行修改） */}
+            <div className="border-t border-[#eaeef2] pt-3">
+              <div className="mb-2 text-[12px] font-medium text-[#656d76]">员工信息（企业身份同步 / AI 抽取，可自行修改）</div>
+              {profileLoading ? (
+                <div className="text-[12px] text-[#8c959f]">加载中…</div>
+              ) : fieldDefs.length === 0 ? (
+                <div className="text-[12px] text-[#8c959f]">暂无可编辑的员工字段（后台可配置）</div>
+              ) : (
+                <div className="grid grid-cols-2 gap-3">
+                  {fieldDefs.filter((d: any) => d.enabled && d.user_editable && d.target !== "user").map((d: any) => (
+                    <div key={d.field_key} className={d.field_key === "org_path" ? "col-span-2" : ""}>
+                      <label htmlFor={`profile-field-${d.field_key}`} className="mb-1 block text-[12px] text-[#656d76]">
+                        {d.field_name}
+                        {d.target === "custom" && <span className="ml-1 rounded bg-[#fff1c9] px-1 text-[11px] text-[#9a6700]">自定义</span>}
+                      </label>
+                      <input
+                        id={`profile-field-${d.field_key}`}
+                        value={pfEmp[d.field_key] || ""}
+                        onChange={(e) => setPfEmp({ ...pfEmp, [d.field_key]: e.target.value })}
+                        maxLength={d.field_key === "org_path" ? 500 : 100}
+                        placeholder={d.hint || ""}
+                        className="w-full rounded-md border border-[#d0d7de] px-2 py-1.5 text-[13px] outline-none focus:border-[#0969da]"
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            {profileMsg && <div className={`text-[13px] ${profileMsg.startsWith("✓") ? "text-[#1a7f37]" : "text-[#cf222e]"}`}>{profileMsg}</div>}
+            <div className="flex justify-end gap-2">
+              <button disabled={profileSaving} onClick={closeProfile} className="rounded-md border border-[#d0d7de] px-4 py-1.5 text-[13px] text-[#656d76] hover:bg-[#f3f4f6]">取消</button>
+              <button disabled={!profileReady || profileLoading || profileSaving} onClick={saveProfile} className="rounded-md bg-[#0969da] px-4 py-1.5 text-[13px] font-medium text-white hover:bg-[#0550ae] disabled:opacity-50">{profileSaving ? "保存中…" : "保存"}</button>
+            </div>
+          </div>
+        </Modal>
+
+        {/* 修改密码弹窗 */}
+        <Modal open={passOpen} title="修改密码" width={420} onClose={() => setPassOpen(false)}>
+          <div className="space-y-4">
+            <div>
+              <label className="mb-1 block text-[13px] font-medium text-[#24292f]">当前密码</label>
+              <input type="password" value={oldPwd} onChange={(e) => setOldPwd(e.target.value)} className="w-full rounded-md border border-[#d0d7de] px-3 py-2 text-[14px] outline-none focus:border-[#0969da]" />
+            </div>
+            <div>
+              <label className="mb-1 block text-[13px] font-medium text-[#24292f]">新密码</label>
+              <input type="password" value={newPwd} onChange={(e) => setNewPwd(e.target.value)} className="w-full rounded-md border border-[#d0d7de] px-3 py-2 text-[14px] outline-none focus:border-[#0969da]" />
+            </div>
+            <div>
+              <label className="mb-1 block text-[13px] font-medium text-[#24292f]">确认新密码</label>
+              <input type="password" value={newPwd2} onChange={(e) => setNewPwd2(e.target.value)} className="w-full rounded-md border border-[#d0d7de] px-3 py-2 text-[14px] outline-none focus:border-[#0969da]" />
+            </div>
+            {passMsg && <div className={`text-[13px] ${passMsg.startsWith("✓") ? "text-[#1a7f37]" : "text-[#cf222e]"}`}>{passMsg}</div>}
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setPassOpen(false)} className="rounded-md border border-[#d0d7de] px-4 py-1.5 text-[13px] text-[#656d76] hover:bg-[#f3f4f6]">取消</button>
+              <button onClick={savePassword} className="rounded-md bg-[#0969da] px-4 py-1.5 text-[13px] font-medium text-white hover:bg-[#0550ae]">确认修改</button>
+            </div>
+          </div>
+        </Modal>
       </main>
     </div>
   );

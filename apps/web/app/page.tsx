@@ -1,29 +1,87 @@
 "use client";
-import { AnnouncementCard } from "@/components/AnnouncementCard";
 
-import { useEffect, useState, Suspense } from "react";
+import { useCallback, useEffect, useRef, useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Sidebar } from "@/components/Sidebar";
 import { PostCard } from "@/components/PostCard";
 import { http } from "@/lib/api";
+import { AnnouncementCard } from "@/components/AnnouncementCard";
 import { HomeBanners } from "@/components/HomeBanners";
+
+const PAGE_SIZE = 20;
 
 function HomeInner() {
   const router = useRouter();
   const params = useSearchParams();
   const sort = params.get("sort") || "latest";
   const categoryId = params.get("category") || undefined;
-  const [data, setData] = useState<any>({ total: 0, items: [] });
+  const [items, setItems] = useState<any[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadError, setLoadError] = useState(false);
+  const sentinelRef = useRef<HTMLDivElement>(null);
+  const generation = useRef(0);
+  const pageBusy = useRef(false);
 
-  useEffect(() => {
-    setLoading(true);
-    http
-      .get(`/posts?sort=${sort}${categoryId ? `&category_id=${categoryId}` : ""}&page_size=20`)
-      .then(setData)
-      .catch(() => setData({ total: 0, items: [] }))
-      .finally(() => setLoading(false));
+  const loadPage = useCallback(async (p: number, append: boolean, epoch = generation.current) => {
+    if (epoch !== generation.current || pageBusy.current) return;
+    pageBusy.current = true;
+    setLoadError(false);
+    if (p === 1) setLoading(true);
+    else setLoadingMore(true);
+    try {
+      const d = await http.get(`/posts?sort=${sort}${categoryId ? `&category_id=${categoryId}` : ""}&page=${p}&page_size=${PAGE_SIZE}`);
+      if (epoch !== generation.current) return;
+      const rows = Array.isArray(d.items) ? d.items : [];
+      setTotal(d.total || 0);
+      setItems((prev: any[]) => {
+        if (!append) return rows;
+        const ids = new Set(prev.map(item => item.id));
+        return [...prev, ...rows.filter((item: any) => !ids.has(item.id) && ids.add(item.id))];
+      });
+      setPage(p);
+      setHasMore(rows.length > 0 && p * PAGE_SIZE < (d.total || 0));
+    } catch {
+      if (epoch !== generation.current) return;
+      setLoadError(true);
+      if (!append) setItems([]);
+    } finally {
+      if (epoch === generation.current) {
+        pageBusy.current = false;
+        setLoading(false);
+        setLoadingMore(false);
+      }
+    }
   }, [sort, categoryId]);
+
+  // sort/category 切换时重置
+  useEffect(() => {
+    const epoch = ++generation.current;
+    pageBusy.current = false;
+    setItems([]);
+    setTotal(0);
+    setPage(1);
+    setHasMore(false);
+    void loadPage(1, false, epoch);
+    return () => { if (generation.current === epoch) generation.current++; };
+  }, [loadPage]);
+
+  // 无限滚动
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el) return;
+    const epoch = generation.current;
+    const io = new IntersectionObserver((entries) => {
+      if (entries[0].isIntersecting && !loading && !loadingMore && !loadError && hasMore) {
+        void loadPage(page + 1, true, epoch);
+      }
+    }, { rootMargin: "400px" });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [loading, loadingMore, loadError, hasMore, page, loadPage]);
 
   const tabs = [
     { key: "latest", label: "最新" },
@@ -50,16 +108,21 @@ function HomeInner() {
             </button>
           ))}
         </div>
+        {loadError && <p role="alert" className="my-2 text-sm text-[#cf222e]">帖子加载失败 <button onClick={() => void loadPage(items.length ? page + 1 : 1, items.length > 0)} className="text-[#0969da]">重试加载</button></p>}
         <div className="rounded-lg border border-[#d0d7de] bg-white px-3 py-1">
           {loading ? (
             <div className="py-10 text-center text-sm text-[#656d76]">加载中…</div>
-          ) : data.items.length === 0 ? (
+          ) : items.length === 0 ? (
             <div className="py-16 text-center text-sm text-[#656d76]">暂无帖子，去发第一帖吧</div>
           ) : (
-            data.items.map((p: any) => <PostCard key={p.id} post={p} />)
+            <>
+              {items.map((p: any) => <PostCard key={p.id} post={p} />)}
+              <div ref={sentinelRef} className="py-4 text-center text-[12px] text-[#999]">
+                {loadingMore ? "加载更多…" : hasMore ? "↓ 往下滑加载更多" : `— 已全部加载完（共 ${items.length} 条）—`}
+              </div>
+            </>
           )}
         </div>
-        <div className="mt-3 text-[12px] text-[#656d76]">共 {data.total} 条</div>
       </main>
       <aside className="hidden w-[280px] shrink-0 space-y-4 lg:block">
         <AnnouncementCard />

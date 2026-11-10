@@ -1,5 +1,4 @@
 "use client";
-import { AnnouncementCard } from "@/components/AnnouncementCard";
 
 import { useEffect, useState, Suspense } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
@@ -7,6 +6,7 @@ import { http, getToken } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { Avatar, MarkdownView, TimeAgo } from "@/components/ui";
 import { Sidebar } from "@/components/Sidebar";
+import { PostShare } from "@/components/PostShare";
 import { AttachmentList, type AttachmentItem } from "@/components/AttachmentUploader";
 import { BytemdEditor } from "@/components/BytemdEditor";
 
@@ -143,6 +143,7 @@ function PostInner() {
               </span>
             )}
             <span className="text-[13px] text-[#656d76]">{post.category_name}</span>
+            {post.status === "published" && <PostShare key={post.id} id={post.id} title={post.title} category={post.category_name || ""} />}
           </div>
           <h1 className="mt-2 text-[20px] font-semibold leading-snug text-[#24292f]">{post.title}</h1>
           <div className="mt-3 flex items-center gap-3 text-[13px] text-[#656d76]">
@@ -166,6 +167,9 @@ function PostInner() {
             <button onClick={likePost} className={`rounded-md border px-3 py-1.5 text-[13px] ${post.is_liked ? "border-[#0969da] bg-[#0969da]/10 text-[#0969da]" : "border-[#d0d7de] text-[#656d76] hover:bg-[#f3f4f6]"}`}>
               👍 点赞 {post.like_count}
             </button>
+            {user && (user.id === post.author_id || user.role === "super_admin") && !post.locked && ["published", "rejected"].includes(post.status) && (
+              <a href={`/post/${post.id}/edit`} className="rounded-md border border-[#d0d7de] px-3 py-1.5 text-[13px] text-[#0969da] hover:bg-[#f3f4f6]">编辑</a>
+            )}
             {post.post_type === "question" && post.author_id === user?.id && (
               <button onClick={markSolved} className="rounded-md border border-[#d0d7de] px-3 py-1.5 text-[13px] text-[#1a7f37] hover:bg-[#dafbe1]">
                 {post.is_solved ? "取消已解决" : "标记已解决"}
@@ -285,7 +289,7 @@ function PostInner() {
               )}
               {user ? (
                 <>
-                  <BytemdEditor value={body} onChange={setBody} placeholder="写下你的回复…（支持 Markdown；工具栏可直接插入图片 / 附件）" height={180} />
+                  <BytemdEditor value={body} onChange={setBody} placeholder="写下你的回复…" height={180} />
                   {error && <div className="mb-2 rounded bg-[#ffebe9] px-3 py-1.5 text-[13px] text-[#cf222e]">{error}</div>}
                   <div className="flex justify-end">
                     <button disabled={sending} className="rounded-md bg-[#0969da] px-4 py-1.5 text-[13px] font-medium text-white hover:bg-[#0550ae] disabled:opacity-60">
@@ -302,9 +306,6 @@ function PostInner() {
           )}
         </div>
       </main>
-      <aside className="hidden w-[280px] shrink-0 space-y-4 lg:block">
-        <AnnouncementCard />
-      </aside>
     </div>
   );
 }

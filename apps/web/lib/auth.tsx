@@ -1,8 +1,9 @@
 "use client";
 
 import { createContext, useContext, useEffect, useRef, useState } from "react";
-import { clearAuth, getStoredUser, http, setAuth } from "./api";
-import { consumeSsoResult, safeSsoLogoutUrl } from "./sso";
+import { clearAuth, getStoredUser, getToken, http, setAuth } from "./api";
+import { consumeSsoResult, safeSsoLogoutUrl, startSsoLogin } from "./sso";
+import { resolveAutoSso, AUTO_SSO_ATTEMPTED } from "./auto-sso";
 
 interface AuthCtx {
   user: any | null;
@@ -23,6 +24,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (started.current) return;
     started.current = true;
     void (async () => {
+      const isSsoCallback = new URLSearchParams(window.location.search).has("sso_ok");
       try {
         const attempt = sessionStorage.getItem("community_sso_attempt");
         const result = await consumeSsoResult(window.location.href, () => {
@@ -43,11 +45,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           window.location.replace("/");
           return;
         }
+        try {
+          if (await resolveAutoSso(window.location.href, getToken(), sessionStorage, fetch, clearAuth) === "sso") {
+            startSsoLogin();
+            return;
+          }
+        } catch { /* Keep account login available when browser storage is denied. */ }
         const stored = getStoredUser();
         if (stored) setUser(stored);
       } catch {
-        clearAuth();
-        window.location.replace("/login?sso_error=1");
+        // A storage failure must not create an endless reload of the login page.
+        if (isSsoCallback) {
+          try { clearAuth(); } catch { /* storage unavailable */ }
+          window.location.replace("/login?sso_error=1");
+        }
       } finally {
         setReady(true);
       }
@@ -67,10 +78,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const logout = async () => {
+    try { sessionStorage.setItem(AUTO_SSO_ATTEMPTED, "1"); } catch { /* manual URL below also bypasses automation */ }
     const wasSso = localStorage.getItem("community_auth_source") === "sso";
     clearAuth();
     setUser(null);
-    let destination = "/login";
+    let destination = "/login?local=1";
     if (wasSso) {
       try {
         const response = await fetch("/api/auth/sso/status", { signal: AbortSignal.timeout(3000), cache: "no-store" });

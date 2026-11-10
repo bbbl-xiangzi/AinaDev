@@ -467,3 +467,7 @@ async def search(
     rows = list(await db.scalars(stmt.offset((page - 1) * page_size).limit(page_size)))
     items = [await _post_to_out(db, p, None) for p in rows]
     return PostListOut(total=total or 0, items=items)
+
+
+from app.api.post_edit import router as post_edit_router
+router.include_router(post_edit_router)

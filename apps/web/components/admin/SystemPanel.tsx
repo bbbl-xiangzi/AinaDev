@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { http } from "@/lib/api";
+import { formatAuditTime } from "@/lib/audit-time";
 import { LoginCardFields } from "./LoginCardFields";
 
 export function SystemPanel() {
@@ -23,6 +24,7 @@ export function SystemPanel() {
     await http.put("/admin/site-config", {
       site_name: site.site_name || null,
       login_title: site.login_title,
+      auto_sso_login: String(site.auto_sso_login).toLowerCase() === "true",
       login_subtitle: site.login_subtitle,
       site_description: site.site_description || null,
       mcp_api_key: site.mcp_api_key || null,
@@ -108,14 +110,14 @@ export function SystemPanel() {
           </table>
         </div>
         <div className="rounded-lg border border-[#d0d7de] bg-white p-4">
-          <h3 className="mb-2 text-[15px] font-semibold">操作审计日志</h3>
+          <h3 className="mb-2 text-[15px] font-semibold">操作审计日志（北京时间）</h3>
           <table className="w-full text-[12px]">
             <tbody>
               {logs.map((l) => (
                 <tr key={l.id} className="border-b border-[#d0d7de]/50">
                   <td className="py-1.5">{l.action}</td>
                   <td className="py-1.5 text-[#656d76]">{l.actor_type}{l.actor_id ? `#${l.actor_id}` : ""}</td>
-                  <td className="py-1.5 font-mono text-[11px]">{l.created_at?.slice(0, 16)}</td>
+                  <td className="py-1.5 font-mono text-[11px]">{formatAuditTime(l.created_at)}</td>
                 </tr>
               ))}
             </tbody>

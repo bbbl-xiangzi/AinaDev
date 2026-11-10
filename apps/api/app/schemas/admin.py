@@ -144,6 +144,7 @@ class AgentRunOut(BaseModel):
 
 # ---------- 站点配置 ----------
 class SiteConfigIn(BaseModel):
+    auto_sso_login: bool | None = None
     login_title: str | None = Field(default=None, max_length=120)
     login_subtitle: str | None = Field(default=None, max_length=240)
     site_name: str | None = None

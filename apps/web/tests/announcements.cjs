@@ -2,7 +2,7 @@ const {chromium}=require('playwright');
 const assert=require('node:assert/strict');
 const BASE=process.env.TEST_BASE_URL||'http://localhost:3051';
 (async()=>{
- const b=await chromium.launch({headless:true,channel:'msedge'});
+ const b=await chromium.launch({headless:true,channel:process.env.TEST_BROWSER||'msedge'});
  const results=[]; const errors=[];
  try {
  const page=await b.newPage({viewport:{width:1440,height:1000}});
@@ -15,6 +15,7 @@ const BASE=process.env.TEST_BASE_URL||'http://localhost:3051';
   const u=new URL(r.request().url());
   if(u.pathname==='/api/categories')return r.fulfill({status:failure==='categories'?500:200,json:failure==='categories'?{detail:'test failure'}:cats});
   if(u.pathname==='/api/posts'){
+   if(u.searchParams.get('page_size')!=='1')return r.fulfill({json:{items:[],total:0}});
    if(u.searchParams.has('category_id')){
     calls.push(u.search);
     if(failure==='posts')return r.fulfill({status:500,json:{detail:'test failure'}});
@@ -34,7 +35,8 @@ const BASE=process.env.TEST_BASE_URL||'http://localhost:3051';
  const expectText=async text=>{await page.waitForFunction(text=>Array.from(document.querySelectorAll('aside')).some(a=>a.textContent.includes(text)),text);};
  const pass=s=>{results.push(s);console.log('PASS',s)};
  await page.goto(BASE+'/');await expectText('原公告');assert.equal(await card.locator('a').getAttribute('href'),'/post/101');pass('首页公告及相对路径链接');
- await card.locator('a').click();await page.waitForURL('**/post/101');await expectText('原公告');assert.equal(await page.locator('h1').innerText(),'原公告');pass('点击跳转详情且详情页显示同一公告');
+ await card.locator('a').click();await page.waitForURL('**/post/101');assert.equal(await page.locator('h1').innerText(),'原公告');assert.equal(await page.locator('aside').count(),0);pass('点击跳转详情，详情正文使用原右侧空间');
+ await page.goto(BASE+'/c/17');await expectText('原公告');pass('栏目页右侧显示同一公告');
  posts[0].title='已修改公告';await page.evaluate(()=>window.dispatchEvent(new Event('focus')));await expectText('已修改公告');pass('切回窗口刷新修改后的标题');
  posts.push({id:102,title:'最新公告',pinned:false,created_at:'2026-10-16T10:00:00Z',status:'published'});
  await page.clock.fastForward(60000);await expectText('最新公告');pass('一分钟自动刷新');

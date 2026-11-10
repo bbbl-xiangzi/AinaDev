@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.core.db import get_db
+from app.core.public_origin import public_origin
 from app.core.security import create_access_token, create_refresh_token
 from app.models import SsoConfig, User
 from app.schemas import SsoStatusOut
@@ -35,8 +36,7 @@ async def sso_status(db: AsyncSession = Depends(get_db)):
     return SsoStatusOut(enabled=True, label=cfg.label or "企业统一身份登录", logout_url=options(cfg).logout_url or None)
 
 
-@router.get("/login")
-async def sso_login(login_attempt: str = "", db: AsyncSession = Depends(get_db)):
+async def sso_login(request: Request = None, login_attempt: str = "", db: AsyncSession = Depends(get_db)):
     """登录入口：生成 state + PKCE，302 到企业应用中台授权页。"""
     cfg = await sso_service.get_active_config(db)
     if not cfg:
@@ -45,18 +45,18 @@ async def sso_login(login_attempt: str = "", db: AsyncSession = Depends(get_db))
         raise HTTPException(status_code=400, detail="请从社区登录页发起企业登录")
     endpoints = await sso_service.resolve_endpoints(cfg)
     state, verifier, nonce = sso_service._new_state_record()
+    origin = public_origin(request)
     async with aioredis.from_url(settings.redis_url) as redis:
         await redis.setex(
             f"{sso_service.STATE_PREFIX}{state}",
             sso_service.STATE_TTL,
-            f"{verifier}|{nonce}|{login_attempt}|{config_fingerprint(cfg)}",
+            f"{verifier}|{nonce}|{login_attempt}|{config_fingerprint(cfg)}|{origin}",
         )
-    url = sso_service.authorize_url_of(cfg, endpoints, state, verifier, nonce)
+    url = sso_service.authorize_url_of(cfg, endpoints, state, verifier, nonce, sso_service.redirect_uri(origin))
     return RedirectResponse(url=url, status_code=302)
 
 
-@router.get("/callback")
-async def sso_callback(code: str = "", state: str = "", error: str = "", db: AsyncSession = Depends(get_db)):
+async def sso_callback(request: Request = None, code: str = "", state: str = "", error: str = "", db: AsyncSession = Depends(get_db)):
     """IDP 回调：换 token → 验签 → 开通/绑定账号 → 签发社区 JWT。"""
     if error:
         raise HTTPException(status_code=400, detail="企业身份认证被拒绝，请重新登录")
@@ -67,9 +67,11 @@ async def sso_callback(code: str = "", state: str = "", error: str = "", db: Asy
     if not rec:
         raise HTTPException(status_code=400, detail="state 无效或已过期（请重新发起登录）")
     parts = rec.decode().split("|")
-    if len(parts) != 4:
+    if len(parts) != 5:
         raise HTTPException(status_code=400, detail="登录请求已失效，请从社区登录页重试")
-    verifier, nonce, login_attempt, fingerprint = parts
+    verifier, nonce, login_attempt, fingerprint, origin = parts
+    if public_origin(request) != origin:
+        raise HTTPException(status_code=400, detail="登录回调地址与发起地址不一致，请从同一地址重新登录")
 
     cfg = await sso_service.get_active_config(db)
     if not cfg:
@@ -78,7 +80,7 @@ async def sso_callback(code: str = "", state: str = "", error: str = "", db: Asy
         raise HTTPException(status_code=400, detail="SSO 配置已更新，请重新发起登录")
 
     try:
-        token_resp = await sso_service.exchange_token(cfg, code, verifier)
+        token_resp = await sso_service.exchange_token(cfg, code, verifier, sso_service.redirect_uri(origin))
         if getattr(cfg,"protocol","oidc")=="oauth2":
             from app.services.oauth2_service import options, userinfo_object
             if options(cfg).userinfo_source=="token":
@@ -122,9 +124,32 @@ async def sso_callback(code: str = "", state: str = "", error: str = "", db: Asy
     refresh = create_refresh_token(user.id)
     from urllib.parse import quote
 
-    to = f"{settings.public_base_url.rstrip('/')}/login?sso_ok=1"
+    to = f"{origin}/login?sso_ok=1"
     return RedirectResponse(
         url=f"{to}#token={access}&refresh={quote(refresh)}&user_id={user.id}&attempt={quote(login_attempt)}",
         status_code=302,
         headers={"Cache-Control":"no-store","Referrer-Policy":"no-referrer"},
     )
+
+
+def _browser_login_error():
+    return RedirectResponse("/login?sso_error=1", status_code=302,
+                            headers={"Cache-Control": "no-store", "Referrer-Policy": "no-referrer"})
+
+
+@router.get("/login")
+async def sso_login_browser(request: Request = None, login_attempt: str = "", db: AsyncSession = Depends(get_db)):
+    try:
+        return await sso_login(request=request, login_attempt=login_attempt, db=db)
+    except Exception as exc:
+        logger.warning("SSO browser start failed (%s)", type(exc).__name__)
+        return _browser_login_error()
+
+
+@router.get("/callback")
+async def sso_callback_browser(request: Request = None, code: str = "", state: str = "", error: str = "", db: AsyncSession = Depends(get_db)):
+    try:
+        return await sso_callback(request=request, code=code, state=state, error=error, db=db)
+    except Exception as exc:
+        logger.warning("SSO browser callback failed (%s)", type(exc).__name__)
+        return _browser_login_error()

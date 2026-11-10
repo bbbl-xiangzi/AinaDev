@@ -11,6 +11,8 @@ class Settings(BaseSettings):
     site_name: str = "AI 开发者社区"
     site_description: str = "企业 AI 原生开发者社区"
     public_base_url: str = "http://localhost"
+    # Additional browser-facing origins allowed for SSO callbacks.
+    public_allowed_origins: str = ""
 
     # 数据层
     database_url: str = "postgresql+psycopg://community:community@localhost:5432/community"

@@ -10,7 +10,7 @@ from app.schemas import AgentRunOut, AuditLogOut, SiteConfigIn, StatsOut
 
 router = APIRouter(prefix="/api/admin", tags=["admin-system"])
 
-LOGIN_DEFAULTS = {"login_title": "AI 开发者社区", "login_subtitle": "企业 AI 原生开发者社区 · 内部私有部署"}
+LOGIN_DEFAULTS = {"auto_sso_login": "false", "login_title": "AI 开发者社区", "login_subtitle": "企业 AI 原生开发者社区 · 内部私有部署"}
 
 
 @router.get("/stats", response_model=StatsOut)
@@ -111,12 +111,13 @@ async def site_config_public(db: AsyncSession = Depends(get_db)):
     """公开接口：前端顶栏和 HTML title 用，不需要登录。"""
     from app.config import settings
     from app.models import SiteConfig
-    rows = list(await db.scalars(select(SiteConfig).where(SiteConfig.key.in_(["site_name", "site_description", "logo_url", "login_title", "login_subtitle"]))))
+    rows = list(await db.scalars(select(SiteConfig).where(SiteConfig.key.in_(["site_name", "site_description", "logo_url", "login_title", "login_subtitle", "auto_sso_login"]))))
     data = {r.key: r.value for r in rows}
     return {
         "site_name": data.get("site_name") or settings.site_name,
         "site_description": data.get("site_description") or settings.site_description,
         "logo_url": data.get("logo_url") or "",
+        "auto_sso_login": str(data.get("auto_sso_login", "false")).lower() == "true",
         "login_title": data.get("login_title", "").strip() or LOGIN_DEFAULTS["login_title"],
         "login_subtitle": data.get("login_subtitle", LOGIN_DEFAULTS["login_subtitle"]),
     }
